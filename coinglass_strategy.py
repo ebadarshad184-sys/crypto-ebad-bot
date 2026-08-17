@@ -30,17 +30,28 @@ import ccxt
 CONFIG = {
     "exchange": "mexc",
     "market_type": "swap",           # perpetual futures (USDT-M)
-    "top_n_coins": 30,
-    "native_timeframes": ["15m", "30m", "1h"],   # Binance ke supported TFs
+    "native_timeframes": ["5m", "15m", "30m", "1h"],
     "also_build_45m": True,          # 45m ko 15m data se resample karke banayega
     "candles_to_fetch": 300,
+
+    # Fixed list - sirf jani-pehchani top 30 coins, koi anjaan/low-quality coin nahi
+    "fixed_coin_list": [
+        "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "BNB/USDT:USDT",
+        "XRP/USDT:USDT", "DOGE/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT",
+        "TRX/USDT:USDT", "LINK/USDT:USDT", "DOT/USDT:USDT", "MATIC/USDT:USDT",
+        "LTC/USDT:USDT", "SHIB/USDT:USDT", "BCH/USDT:USDT", "UNI/USDT:USDT",
+        "ATOM/USDT:USDT", "ETC/USDT:USDT", "NEAR/USDT:USDT", "APT/USDT:USDT",
+        "FIL/USDT:USDT", "ARB/USDT:USDT", "OP/USDT:USDT", "SUI/USDT:USDT",
+        "INJ/USDT:USDT", "TON/USDT:USDT", "SAND/USDT:USDT", "AAVE/USDT:USDT",
+        "XLM/USDT:USDT", "ALGO/USDT:USDT",
+    ],
 
     "use_cmf_filter": True,
     "use_div_filter": True,
     "require_whale_vol": False,
     "use_confirmation": True,
 
-    "min_body_ratio": 0.30,
+    "min_body_ratio": 0.20,
     "inst_cmf_len": 20,
     "cmf_smooth_len": 5,
     "div_lookback": 10,
@@ -49,13 +60,13 @@ CONFIG = {
     "ema_slow_len": 20,
 
     "vol_ema_length": 20,
-    "min_rel_vol": 1.3,
+    "min_rel_vol": 1.1,
     "whale_rel_vol": 2.0,
 
     "atr_length": 14,
     "atr_buffer_mult": 0.2,
 
-    "min_star_score": 2,   # sirf 2 aur 3 star signals pe alert (0,1 ignore)
+    "min_star_score": 1,   # sirf 1,2,3 star signals pe alert (0 ignore)
 }
 
 # Email (Gmail App Password)
@@ -66,22 +77,17 @@ TO_EMAIL = "arshadebad5@gmail.com"
 STATE_FILE = "alert_state.json"
 
 # ==========================================
-# 2. TOP 30 PERPETUAL COINS FETCH KARO
+# 2. TOP 30 COINS - FIXED LIST (sirf jani-pehchani coins)
 # ==========================================
 def get_top_coins(ex, cfg):
     markets = ex.load_markets()
-    perp_symbols = [
-        s for s, m in markets.items()
-        if m.get("swap") and m.get("quote") == "USDT" and m.get("active", True)
-    ]
-    tickers = ex.fetch_tickers(perp_symbols)
-    ranked = sorted(
-        tickers.items(),
-        key=lambda kv: (kv[1].get("quoteVolume") or 0),
-        reverse=True,
-    )
-    top = [sym for sym, _ in ranked[: cfg["top_n_coins"]]]
-    return top
+    valid = []
+    for sym in cfg["fixed_coin_list"]:
+        if sym in markets and markets[sym].get("active", True):
+            valid.append(sym)
+        else:
+            print(f"  (skip - {sym} is exchange pe available nahi)")
+    return valid
 
 # ==========================================
 # 3. DATA FETCH
@@ -288,7 +294,11 @@ def run_live(cfg):
 
     print("Top coins fetch kar raha hoon...")
     symbols = get_top_coins(ex, cfg)
-    print(f"{len(symbols)} coins mile. Check shuru...")
+    print(f"{len(symbols)} coins mile:")
+    for s in symbols:
+        print(f"  - {s}")
+    print("Timeframes: 5m, 15m, 30m, 45m, 60m")
+    print("Check shuru...")
 
     state = load_state()
 
