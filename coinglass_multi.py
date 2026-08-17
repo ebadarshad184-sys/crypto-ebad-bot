@@ -28,7 +28,7 @@ import ccxt
 # 1. CONFIG
 # ==========================================
 CONFIG = {
-    "exchange": "bybit",
+    "exchange": "gateio",
     "market_type": "swap",           # perpetual futures (USDT-M)
     "top_n_coins": 30,
     "native_timeframes": ["15m", "30m", "1h"],   # Binance ke supported TFs
