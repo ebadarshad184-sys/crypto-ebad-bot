@@ -1,15 +1,8 @@
 """
-CoinGlass Master Model v5 - Python Multi-Coin, Multi-Timeframe Bot
-===================================================================
-Top 100 USDT perpetual futures coins, 5 timeframes (5m/15m/30m/45m/60m),
+CoinGlass Master Model v5 - Python Multi-Coin, Multi-Timeframe Bot (Fast 30m, 45m, 1h)
+====================================================================================
+Top 100 USDT perpetual futures coins, 3 timeframes (30m, 45m, 1h),
 Weighted Institutional Score (0-6) -> Stars (1-3) filter ke sath alert bhejta hai.
-
-Dependencies:
-  pip install ccxt pandas numpy --break-system-packages
-
-Execution:
-  python3 coinglass_v5_multi.py live
-  python3 coinglass_v5_multi.py backtest BTC/USDT:USDT 15m
 """
 
 import sys
@@ -22,14 +15,14 @@ import numpy as np
 import ccxt
 
 # ==========================================
-# 1. CONFIG & PARAMETERS (V5 Strategy)
+# 1. CONFIG & PARAMETERS (Fast Timeframes)
 # ==========================================
 CONFIG = {
     "exchange": "mexc",
     "market_type": "swap",           # perpetual futures (USDT-M)
-    "native_timeframes": ["5m", "15m", "30m", "1h"],
-    "also_build_45m": True,          # 45m resampled from 15m
-    "candles_to_fetch": 300,
+    "native_timeframes": ["30m", "1h"],
+    "also_build_45m": True,          # 45m resampled from 15m base fetch
+    "candles_to_fetch": 200,
 
     # Mode: "Balanced", "Conservative", "More Signals"
     "signal_mode": "Balanced",
@@ -37,7 +30,7 @@ CONFIG = {
     "use_div_filter": True,
     "require_whale_vol": False,
     "use_confirmation": True,
-    "use_htf_filter": False,         # Pine Script Default
+    "use_htf_filter": False,
 
     "min_stars_to_show": 2,          # Minimum 2-Star (Score 3+) for alerts
     "min_body_ratio": 0.25,
@@ -85,14 +78,12 @@ CONFIG = {
     ]
 }
 
-# Email Details
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
 GMAIL_APP_PASSWORD = "pgmq hgoz kkwc dcwg"
 TO_EMAIL = "arshadebad5@gmail.com"
 
 STATE_FILE = "alert_state_v5.json"
 
-# Adjust Volume Threshold based on Mode
 mode_min_rel_vol = CONFIG["min_rel_vol_input"]
 if CONFIG["signal_mode"] == "Conservative":
     mode_min_rel_vol = max(CONFIG["min_rel_vol_input"], 1.30)
@@ -146,13 +137,11 @@ def wilder_atr(df, length):
 def build_indicators_v5(df, cfg):
     df = df.copy()
     
-    # EMAs
     df["ema_fast"] = ema(df["close"], cfg["ema_fast_len"])
     df["ema_slow"] = ema(df["close"], cfg["ema_slow_len"])
     df["atr"] = wilder_atr(df, cfg["atr_length"])
     df["step"] = df["atr"] * 0.4
 
-    # Relative Volume
     df["vol_ema"] = ema(df["volume"], cfg["vol_ema_length"])
     df["rel_vol"] = np.where(df["vol_ema"] > 0, df["volume"] / df["vol_ema"], 1.0)
     df["is_high_vol"] = df["rel_vol"] >= cfg["mode_min_rel_vol"]
@@ -160,7 +149,6 @@ def build_indicators_v5(df, cfg):
 
     vol_break = df["is_whale_vol"] if cfg["require_whale_vol"] else df["is_high_vol"]
 
-    # CMF (Institutional Flow)
     hl_range = (df["high"] - df["low"]).replace(0, 1)
     mfv = ((df["close"] - df["low"]) - (df["high"] - df["close"])) / hl_range * df["volume"]
     cmf_raw = sma(mfv, cfg["inst_cmf_len"]) / sma(df["volume"], cfg["inst_cmf_len"])
@@ -169,7 +157,6 @@ def build_indicators_v5(df, cfg):
     df["is_accum"] = df["cmf"] > 0
     df["is_distrib"] = df["cmf"] < 0
 
-    # Flow Filter (Flexible Mode handling)
     flexible_flow = cfg["signal_mode"] != "Conservative"
     if cfg["use_cmf_filter"]:
         if flexible_flow:
@@ -182,7 +169,6 @@ def build_indicators_v5(df, cfg):
         df["pass_cmf_long"] = True
         df["pass_cmf_short"] = True
 
-    # Divergence Filter
     lb = cfg["div_lookback"]
     bearish_div = (df["close"] > df["close"].shift(lb)) & (df["cmf"] < df["cmf"].shift(lb)) & (df["cmf"] < df["cmf"].shift(1))
     bullish_div = (df["close"] < df["close"].shift(lb)) & (df["cmf"] > df["cmf"].shift(lb)) & (df["cmf"] > df["cmf"].shift(1))
@@ -193,7 +179,6 @@ def build_indicators_v5(df, cfg):
     df["pass_div_long"] = ~bearish_div if cfg["use_div_filter"] else True
     df["pass_div_short"] = ~bullish_div if cfg["use_div_filter"] else True
 
-    # Candle Body Size
     candle_range = df["high"] - df["low"]
     body = (df["close"] - df["open"]).abs()
     df["is_solid_body"] = (candle_range > 0) & ((body / candle_range) >= cfg["min_body_ratio"])
@@ -201,11 +186,9 @@ def build_indicators_v5(df, cfg):
     df["is_bull"] = df["close"] > df["open"]
     df["is_bear"] = df["close"] < df["open"]
 
-    # EMA Alignment
     df["ema_align_long"] = df["ema_fast"] > df["ema_slow"]
     df["ema_align_short"] = df["ema_fast"] < df["ema_slow"]
 
-    # Breakout Conditions
     strict_breakout = cfg["signal_mode"] == "Conservative"
     if strict_breakout:
         df["break_long"] = df["close"] > df["high"].shift(1)
@@ -223,7 +206,6 @@ def build_indicators_v5(df, cfg):
         & (df["close"] < df["ema_slow"]) & df["break_short"]
     )
 
-    # Setups
     df["setup_long"] = (
         df["break_both_ema_long"] & df["ema_align_long"] & vol_break
         & df["is_solid_body"] & df["pass_cmf_long"] & df["pass_div_long"]
@@ -233,7 +215,6 @@ def build_indicators_v5(df, cfg):
         & df["is_solid_body"] & df["pass_cmf_short"] & df["pass_div_short"]
     )
 
-    # Confirmations
     strict_conf = cfg["signal_mode"] == "Conservative"
     prev_setup_long = df["setup_long"].shift(1).fillna(False)
     prev_setup_short = df["setup_short"].shift(1).fillna(False)
@@ -244,14 +225,11 @@ def build_indicators_v5(df, cfg):
             df["confirm_short"] = prev_setup_short & (df["close"] < df["low"].shift(1)) & df["is_bear"]
         else:
             df["confirm_long"] = prev_setup_long & (df["close"] > df["close"].shift(1)) & df["is_bull"]
-            df["confirm_short"] = prev_setup_short & (df["close"] < df["close"].shift(1)) & df["is_bear"]
+            df["confirm_short"] = prev_setup_short & (df["close"] < df["low"].shift(1)) & df["is_bear"]
     else:
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
 
-    # =====================================================
-    # WEIGHTED INSTITUTIONAL SCORE (0 to 6) & STAR RATING
-    # =====================================================
     df["score_long"] = (
         df["is_accum"].astype(int) +
         df["is_high_vol"].astype(int) +
@@ -338,13 +316,13 @@ def save_state(state):
 # ==========================================
 def check_one(df, symbol, timeframe, cfg, state, state_key):
     df = build_indicators_v5(df, cfg)
-    i = len(df) - 2  # last CLOSED candle
+    i = len(df) - 2
     if i < cfg["div_lookback"] + 5:
         return
 
     ts = str(df["timestamp"].iloc[i])
     if state.get(state_key) == ts:
-        return  # already processed
+        return
 
     ts_pkt = (df["timestamp"].iloc[i] + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " (PKT)"
     usd_vol = df["volume"].iloc[i] * df["close"].iloc[i]
@@ -352,7 +330,6 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
 
     all_sent_ok = True
 
-    # LONG CHECK
     if df["confirm_long"].iloc[i]:
         stars = int(df["stars_long"].iloc[i])
         score = int(df["score_long"].iloc[i])
@@ -368,7 +345,6 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
             ok = send_email(f"V5 LONG {symbol} ({timeframe}) {star_str}", body)
             all_sent_ok = all_sent_ok and ok
 
-    # SHORT CHECK
     if df["confirm_short"].iloc[i]:
         stars = int(df["stars_short"].iloc[i])
         score = int(df["score_short"].iloc[i])
@@ -393,31 +369,31 @@ def run_live(cfg):
 
     print("Fetching top coins...")
     symbols = get_top_coins(ex, cfg)
-    print(f"Checking {len(symbols)} coins across 5 timeframes...")
+    print(f"Checking {len(symbols)} coins across 30m, 45m, 1h timeframes...")
 
     state = load_state()
 
     for symbol in symbols:
-        try:
-            df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
-        except Exception as e:
-            print(f"{symbol}: 15m fetch fail -> {e}")
-            continue
-
+        # Fetch 30m & 1h natively
         for tf in cfg["native_timeframes"]:
             try:
-                df = df15 if tf == "15m" else fetch_ohlcv_df(ex, symbol, tf, cfg["candles_to_fetch"])
+                df = fetch_ohlcv_df(ex, symbol, tf, cfg["candles_to_fetch"])
+                check_one(df, symbol, tf, cfg, state, f"{symbol}_{tf}")
             except Exception as e:
                 print(f"{symbol} {tf}: fetch fail -> {e}")
                 continue
-            check_one(df, symbol, tf, cfg, state, f"{symbol}_{tf}")
 
+        # Fetch 15m only to build 45m frame efficiently
         if cfg["also_build_45m"]:
-            df45 = resample_to_45m(df15)
-            check_one(df45, symbol, "45m", cfg, state, f"{symbol}_45m")
+            try:
+                df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
+                df45 = resample_to_45m(df15)
+                check_one(df45, symbol, "45m", cfg, state, f"{symbol}_45m")
+            except Exception as e:
+                print(f"{symbol} 45m: fetch fail -> {e}")
 
     save_state(state)
-    print("Scan completed successfully.")
+    print("Fast Scan completed successfully.")
 
 def run_backtest(cfg, symbol, timeframe):
     ex_class = getattr(ccxt, cfg["exchange"])
@@ -447,7 +423,7 @@ if __name__ == "__main__":
         run_live(CONFIG)
     elif mode == "backtest":
         sym = sys.argv[2] if len(sys.argv) > 2 else "BTC/USDT:USDT"
-        tf = sys.argv[3] if len(sys.argv) > 3 else "15m"
+        tf = sys.argv[3] if len(sys.argv) > 3 else "30m"
         run_backtest(CONFIG, sym, tf)
     else:
         print("Usage: python3 coinglass_v5_multi.py [live|backtest SYMBOL TIMEFRAME]")
