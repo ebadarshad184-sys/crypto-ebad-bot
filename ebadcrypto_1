@@ -1,0 +1,401 @@
+"""
+CoinGlass Master Model v3.1 - Multi-Coin, Multi-Timeframe Version
+===================================================================
+Top 100 USDT Perpetual Crypto Futures Coins (No Stocks)
+Timeframes: 15m, 30m, 45m, 1h (5m removed for fast execution)
+Sirf 2-star aur 3-star (Inst Score) signals pe INSTANT alert bhejta hai.
+
+Command:
+  python3 coinglass_multi.py live
+  python3 coinglass_multi.py backtest BTC/USDT:USDT 15m
+"""
+
+import sys
+import json
+import os
+import smtplib
+from email.mime.text import MIMEText
+import pandas as pd
+import numpy as np
+import ccxt
+
+# ==========================================
+# 1. CONFIG
+# ==========================================
+CONFIG = {
+    "exchange": "binance",            # binance / mexc
+    "market_type": "swap",           # perpetual futures (USDT-M)
+    "native_timeframes": ["15m", "30m", "1h"],  # 5m HATA DIYA GAYA HAI
+    "also_build_45m": True,          # 45m ko 15m data se resample karke banayega
+    "candles_to_fetch": 150,         # Fast processing ke liye limits standard rakhi hain
+
+    # Pure Crypto Futures - Top 100 Most Liquid Coins
+    "fixed_coin_list": [
+        "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "BNB/USDT:USDT", "XRP/USDT:USDT",
+        "DOGE/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT", "TRX/USDT:USDT", "LINK/USDT:USDT",
+        "DOT/USDT:USDT", "LTC/USDT:USDT", "SHIB/USDT:USDT", "BCH/USDT:USDT", "UNI/USDT:USDT",
+        "ATOM/USDT:USDT", "ETC/USDT:USDT", "NEAR/USDT:USDT", "APT/USDT:USDT", "FIL/USDT:USDT",
+        "ARB/USDT:USDT", "OP/USDT:USDT", "SUI/USDT:USDT", "INJ/USDT:USDT", "TON/USDT:USDT",
+        "SAND/USDT:USDT", "AAVE/USDT:USDT", "XLM/USDT:USDT", "ALGO/USDT:USDT", "ICP/USDT:USDT",
+        "PEPE/USDT:USDT", "WIF/USDT:USDT", "FET/USDT:USDT", "RENDER/USDT:USDT", "FLOKI/USDT:USDT",
+        "BONK/USDT:USDT", "GALA/USDT:USDT", "STX/USDT:USDT", "RUNE/USDT:USDT", "TIA/USDT:USDT",
+        "SEI/USDT:USDT", "CRV/USDT:USDT", "LDO/USDT:USDT", "MKR/USDT:USDT", "GRT/USDT:USDT",
+        "THETA/USDT:USDT", "FTM/USDT:USDT", "RNDR/USDT:USDT", "ORDI/USDT:USDT", "JUP/USDT:USDT",
+        "ENA/USDT:USDT", "WLD/USDT:USDT", "PYTH/USDT:USDT", "ONDO/USDT:USDT", "STRK/USDT:USDT",
+        "BLUR/USDT:USDT", "DYDX/USDT:USDT", "MANA/USDT:USDT", "AXS/USDT:USDT", "CHZ/USDT:USDT",
+        "KSM/USDT:USDT", "SNX/USDT:USDT", "COMP/USDT:USDT", "ENS/USDT:USDT", "ZEC/USDT:USDT",
+        "DASH/USDT:USDT", "XMR/USDT:USDT", "EOS/USDT:USDT", "IOTA/USDT:USDT", "NEO/USDT:USDT",
+        "KLAY/USDT:USDT", "AR/USDT:USDT", "BEAM/USDT:USDT", "NOT/USDT:USDT", "MEME/USDT:USDT",
+        "1INCH/USDT:USDT", "KAVA/USDT:USDT", "MINA/USDT:USDT", "FLOW/USDT:USDT", "ROSE/USDT:USDT",
+        "CFX/USDT:USDT", "WOO/USDT:USDT", "ID/USDT:USDT", "AGIX/USDT:USDT", "OCEAN/USDT:USDT",
+        "JTO/USDT:USDT", "ALT/USDT:USDT", "BOME/USDT:USDT", "MEW/USDT:USDT", "POPCAT/USDT:USDT",
+        "LISTA/USDT:USDT", "IO/USDT:USDT", "ZK/USDT:USDT", "BRETT/USDT:USDT", "TURBO/USDT:USDT",
+        "NEIRO/USDT:USDT", "SDE/USDT:USDT", "LUNA/USDT:USDT", "LUNC/USDT:USDT", "USTC/USDT:USDT"
+    ],
+
+    "use_cmf_filter": True,
+    "use_div_filter": True,
+    "require_whale_vol": False,
+    "use_confirmation": True,
+
+    "min_body_ratio": 0.20,
+    "inst_cmf_len": 20,
+    "cmf_smooth_len": 5,
+    "div_lookback": 10,
+
+    "ema_fast_len": 9,
+    "ema_slow_len": 20,
+
+    "vol_ema_length": 20,
+    "min_rel_vol": 1.1,
+    "whale_rel_vol": 2.0,
+
+    "atr_length": 14,
+    "atr_buffer_mult": 0.2,
+
+    "min_star_score": 2,   # 2 aur 3 star signals pe instant alert
+}
+
+# Email Setup
+GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "arshadebad5@gmail.com")
+GMAIL_APP_PASSWORD = os.environ.get("ondd zmuv exqj csrh", "YOUR_16_LETTER_APP_PASSWORD")
+TO_EMAIL = os.environ.get("TO_EMAIL", "arshadebad5@gmail.com")
+
+STATE_FILE = "alert_state.json"
+
+# ==========================================
+# 2. TOP 100 COINS - FETCH & CLEAN
+# ==========================================
+def get_top_coins(ex, cfg):
+    try:
+        markets = ex.load_markets()
+    except Exception as e:
+        print(f"Market loading error: {e}")
+        return cfg["fixed_coin_list"]
+
+    valid = []
+    for sym in cfg["fixed_coin_list"]:
+        if sym in markets and markets[sym].get("active", True):
+            valid.append(sym)
+        else:
+            clean_sym = sym.split(":")[0]
+            if clean_sym in markets:
+                valid.append(clean_sym)
+    return valid
+
+def clean_coin_name(symbol):
+    """ 'BTC/USDT:USDT' ko clean 'BTCUSDT' me convert karta hai """
+    base_pair = symbol.split(":")[0]
+    return base_pair.replace("/", "")
+
+# ==========================================
+# 3. DATA FETCH
+# ==========================================
+def fetch_ohlcv_df(ex, symbol, timeframe, limit):
+    raw = ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+    df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    return df
+
+def resample_to_45m(df15):
+    df = df15.set_index("timestamp")
+    out = df.resample("45min").agg({
+        "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"
+    }).dropna().reset_index()
+    return out
+
+# ==========================================
+# 4. INDICATORS
+# ==========================================
+def ema(series, length):
+    return series.ewm(span=length, adjust=False).mean()
+
+def sma(series, length):
+    return series.rolling(length).mean()
+
+def wilder_atr(df, length):
+    hl = df["high"] - df["low"]
+    hc = (df["high"] - df["close"].shift()).abs()
+    lc = (df["low"] - df["close"].shift()).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / length, adjust=False).mean()
+
+def build_indicators(df, cfg):
+    df = df.copy()
+    df["ema_fast"] = ema(df["close"], cfg["ema_fast_len"])
+    df["ema_slow"] = ema(df["close"], cfg["ema_slow_len"])
+    df["atr"] = wilder_atr(df, cfg["atr_length"])
+    df["step"] = df["atr"] * 0.4
+
+    df["vol_ema"] = ema(df["volume"], cfg["vol_ema_length"])
+    df["rel_vol"] = np.where(df["vol_ema"] > 0, df["volume"] / df["vol_ema"], 1.0)
+    df["is_high_vol"] = df["rel_vol"] >= cfg["min_rel_vol"]
+    df["is_whale_vol"] = df["rel_vol"] >= cfg["whale_rel_vol"]
+
+    hl_range = (df["high"] - df["low"]).replace(0, 1)
+    mfv = ((df["close"] - df["low"]) - (df["high"] - df["close"])) / hl_range * df["volume"]
+    cmf_raw = sma(mfv, cfg["inst_cmf_len"]) / sma(df["volume"], cfg["inst_cmf_len"])
+    df["cmf"] = ema(cmf_raw, cfg["cmf_smooth_len"])
+
+    df["is_accum"] = df["cmf"] > 0
+    df["is_distrib"] = df["cmf"] < 0
+
+    lb = cfg["div_lookback"]
+    bearish_div = (df["close"] > df["close"].shift(lb)) & (df["cmf"] < df["cmf"].shift(lb)) & (df["cmf"] < df["cmf"].shift(1))
+    bullish_div = (df["close"] < df["close"].shift(lb)) & (df["cmf"] > df["cmf"].shift(lb)) & (df["cmf"] > df["cmf"].shift(1))
+    df["pass_div_long"] = ~bearish_div if cfg["use_div_filter"] else True
+    df["pass_div_short"] = ~bullish_div if cfg["use_div_filter"] else True
+
+    df["pass_cmf_long"] = df["is_accum"] if cfg["use_cmf_filter"] else True
+    df["pass_cmf_short"] = df["is_distrib"] if cfg["use_cmf_filter"] else True
+
+    candle_range = df["high"] - df["low"]
+    body = (df["close"] - df["open"]).abs()
+    df["is_solid_body"] = (candle_range > 0) & ((body / candle_range) >= cfg["min_body_ratio"])
+
+    df["is_bull"] = df["close"] > df["open"]
+    df["is_bear"] = df["close"] < df["open"]
+
+    df["ema_align_long"] = df["ema_fast"] > df["ema_slow"]
+    df["ema_align_short"] = df["ema_fast"] < df["ema_slow"]
+
+    prev_high = df["high"].shift(1)
+    prev_low = df["low"].shift(1)
+
+    df["break_both_ema_long"] = (
+        df["is_bull"] & (df["open"] < df["ema_slow"]) & (df["close"] > df["ema_fast"])
+        & (df["close"] > df["ema_slow"]) & (df["close"] > prev_high)
+    )
+    df["break_both_ema_short"] = (
+        df["is_bear"] & (df["open"] > df["ema_slow"]) & (df["close"] < df["ema_fast"])
+        & (df["close"] < df["ema_slow"]) & (df["close"] < prev_low)
+    )
+
+    vol_break = df["is_high_vol"] & (df["is_whale_vol"] if cfg["require_whale_vol"] else True)
+
+    df["setup_long"] = (
+        df["break_both_ema_long"] & df["ema_align_long"] & vol_break
+        & df["is_solid_body"] & df["pass_cmf_long"] & df["pass_div_long"]
+    )
+    df["setup_short"] = (
+        df["break_both_ema_short"] & df["ema_align_short"] & vol_break
+        & df["is_solid_body"] & df["pass_cmf_short"] & df["pass_div_short"]
+    )
+
+    if cfg["use_confirmation"]:
+        prev_setup_long = df["setup_long"].shift(1).fillna(False)
+        prev_setup_short = df["setup_short"].shift(1).fillna(False)
+        df["confirm_long"] = prev_setup_long & (df["close"] > prev_high) & df["is_bull"]
+        df["confirm_short"] = prev_setup_short & (df["close"] < prev_low) & df["is_bear"]
+    else:
+        df["confirm_long"] = df["setup_long"]
+        df["confirm_short"] = df["setup_short"]
+
+    df["inst_score_long"] = df["is_accum"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
+    df["inst_score_short"] = df["is_distrib"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
+
+    return df
+
+def compute_levels(df, i, cfg, side):
+    use_conf = cfg["use_confirmation"]
+    idx_setup = i - 1 if use_conf else i
+    setup_low = df["low"].iloc[idx_setup]
+    setup_high = df["high"].iloc[idx_setup]
+    step = df["step"].iloc[i]
+    close = df["close"].iloc[i]
+    atr = df["atr"].iloc[i]
+
+    if side == "long":
+        bottom_buy = setup_low - step
+        sl = bottom_buy - (atr * cfg["atr_buffer_mult"])
+        tp = close + (4 * step)
+    else:
+        top_sell = setup_high + step
+        sl = top_sell + (atr * cfg["atr_buffer_mult"])
+        tp = close - (4 * step)
+    return sl, tp
+
+# ==========================================
+# 5. FAST EMAIL ALERT
+# ==========================================
+def send_email(subject, body):
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = GMAIL_ADDRESS
+    msg["To"] = TO_EMAIL
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD.replace(" ", ""))
+            server.sendmail(GMAIL_ADDRESS, TO_EMAIL, msg.as_string())
+        print("  -> EMAIL SENT INSTANTLY:", subject)
+        return True
+    except Exception as e:
+        print("  -> Email FAIL:", e)
+        return False
+
+# ==========================================
+# 6. STATE TRACKING
+# ==========================================
+def load_state():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
+# ==========================================
+# 7. CHECK ONE SYMBOL + TIMEFRAME
+# ==========================================
+def check_one(df, symbol, timeframe, cfg, state, state_key):
+    df = build_indicators(df, cfg)
+    i = len(df) - 2   # last CLOSED candle
+    if i < cfg["div_lookback"] + 5:
+        return
+
+    ts = str(df["timestamp"].iloc[i])
+    if state.get(state_key) == ts:
+        return  # Pehle hi alert bheja ja chuka hai
+
+    ts_pkt = (df["timestamp"].iloc[i] + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " PKT"
+    clean_symbol = clean_coin_name(symbol)
+    tf_display = "60m" if timeframe == "1h" else timeframe
+
+    all_sent_ok = True
+
+    if df["confirm_long"].iloc[i]:
+        score = int(df["inst_score_long"].iloc[i])
+        if score >= cfg["min_star_score"]:
+            sl, tp = compute_levels(df, i, cfg, "long")
+            entry = df["close"].iloc[i]
+            stars = "★" * score + "☆" * (3 - score)
+            body = (f"Coin: {clean_symbol}\nTimeframe: {tf_display}\nTime (PKT): {ts_pkt}\n\n"
+                    f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\nInst Score: {stars}")
+            print(f"🚀 LONG {clean_symbol} {tf_display} score={score}")
+            ok = send_email(f"🚀 LONG {clean_symbol} ({tf_display}) {stars}", body)
+            all_sent_ok = all_sent_ok and ok
+
+    if df["confirm_short"].iloc[i]:
+        score = int(df["inst_score_short"].iloc[i])
+        if score >= cfg["min_star_score"]:
+            sl, tp = compute_levels(df, i, cfg, "short")
+            entry = df["close"].iloc[i]
+            stars = "★" * score + "☆" * (3 - score)
+            body = (f"Coin: {clean_symbol}\nTimeframe: {tf_display}\nTime (PKT): {ts_pkt}\n\n"
+                    f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\nInst Score: {stars}")
+            print(f"🔻 SHORT {clean_symbol} {tf_display} score={score}")
+            ok = send_email(f"🔻 SHORT {clean_symbol} ({tf_display}) {stars}", body)
+            all_sent_ok = all_sent_ok and ok
+
+    if all_sent_ok:
+        state[state_key] = ts
+
+# ==========================================
+# 8. LIVE MODE
+# ==========================================
+def run_live(cfg):
+    ex_class = getattr(ccxt, cfg["exchange"])
+    ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
+
+    symbols = get_top_coins(ex, cfg)
+    state = load_state()
+
+    for symbol in symbols:
+        try:
+            # 15m Base candle fetch
+            df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
+        except Exception:
+            continue
+
+        # Check 15m
+        check_one(df15, symbol, "15m", cfg, state, f"{symbol}_15m")
+
+        # Check 30m
+        try:
+            df30 = fetch_ohlcv_df(ex, symbol, "30m", cfg["candles_to_fetch"])
+            check_one(df30, symbol, "30m", cfg, state, f"{symbol}_30m")
+        except Exception:
+            pass
+
+        # Check 45m (resampled from 15m)
+        if cfg["also_build_45m"]:
+            df45 = resample_to_45m(df15)
+            check_one(df45, symbol, "45m", cfg, state, f"{symbol}_45m")
+
+        # Check 60m (1h)
+        try:
+            df60 = fetch_ohlcv_df(ex, symbol, "1h", cfg["candles_to_fetch"])
+            check_one(df60, symbol, "1h", cfg, state, f"{symbol}_1h")
+        except Exception:
+            pass
+
+    save_state(state)
+
+# ==========================================
+# 9. BACKTEST MODE
+# ==========================================
+def run_backtest(cfg, symbol, timeframe):
+    ex_class = getattr(ccxt, cfg["exchange"])
+    ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
+
+    if timeframe == "45m":
+        df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
+        df = resample_to_45m(df15)
+    else:
+        df = fetch_ohlcv_df(ex, symbol, timeframe, cfg["candles_to_fetch"])
+
+    df = build_indicators(df, cfg)
+    signals = []
+    for i in range(len(df)):
+        if df["confirm_long"].iloc[i]:
+            score = int(df["inst_score_long"].iloc[i])
+            if score >= cfg["min_star_score"]:
+                signals.append((df["timestamp"].iloc[i], "LONG", score))
+        if df["confirm_short"].iloc[i]:
+            score = int(df["inst_score_short"].iloc[i])
+            if score >= cfg["min_star_score"]:
+                signals.append((df["timestamp"].iloc[i], "SHORT", score))
+
+    clean_sym = clean_coin_name(symbol)
+    print(f"\n{clean_sym} ({timeframe}) - {len(signals)} qualifying signals (score >= {cfg['min_star_score']}):")
+    for ts, side, score in signals:
+        print(f"  {ts}  {side}  score={score}")
+
+# ==========================================
+# 10. ENTRY POINT
+# ==========================================
+if __name__ == "__main__":
+    mode = sys.argv[1] if len(sys.argv) > 1 else "live"
+    if mode == "live":
+        run_live(CONFIG)
+    elif mode == "backtest":
+        sym = sys.argv[2] if len(sys.argv) > 2 else "BTC/USDT:USDT"
+        tf = sys.argv[3] if len(sys.argv) > 3 else "15m"
+        run_backtest(CONFIG, sym, tf)
+    else:
+        print("Usage: python3 coinglass_multi.py [live|backtest SYMBOL TIMEFRAME]")
