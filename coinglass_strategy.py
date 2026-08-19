@@ -88,7 +88,7 @@ CONFIG = {
 
 # Email (Gmail App Password)
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
-GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
+GMAIL_APP_PASSWORD = "pgmq hgoz kkwc dcwg"
 TO_EMAIL = "arshadebad5@gmail.com"
 
 STATE_FILE = "alert_state.json"
@@ -252,20 +252,28 @@ def send_email(subject, body):
         return False
 
 # ==========================================
-# 6. STATE (duplicate alerts rokne ke liye)
+# 6. STATE MANAGEMENT (Auto-create & Safe Load)
 # ==========================================
 def load_state():
+    """Reads alert_state.json. If missing, empty or invalid, initializes a new state dictionary."""
     if os.path.exists(STATE_FILE):
         try:
-            with open(STATE_FILE) as f:
+            with open(STATE_FILE, "r") as f:
                 return json.load(f)
         except Exception:
-            return {}
+            # File exists but might be empty or corrupted
+            pass
+    
+    # Return empty dict if file is deleted/missing or invalid
     return {}
 
 def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f)
+    """Saves updated dictionary into alert_state.json automatically creating it if deleted."""
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(state, f, indent=4)
+    except Exception as e:
+        print(f"State save error: {e}")
 
 # ==========================================
 # 7. EK SYMBOL + TIMEFRAME CHECK KARO
