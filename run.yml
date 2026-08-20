@@ -23,8 +23,11 @@ jobs:
       - name: Pehli strategy chalao
         run: python coinglass_strategy.py live
 
+      - name: Multi-Timeframe strategy chalao
+        run: python coinglass_multi.py live
+
       - name: Doosri strategy chalao
-        run: python ebadcrypto_1.py live
+        run: python ebad_crypto_1.py live
 
       - name: Alert states auto-save karo
         uses: stefanzweifel/git-auto-commit-action@v5
