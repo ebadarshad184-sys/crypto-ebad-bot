@@ -1,8 +1,9 @@
 """
-CoinGlass Master Model v5 - Python Multi-Coin, Multi-Timeframe Bot (Fast 30m, 45m, 1h)
+CoinGlass Strategy #2 - Python Multi-Coin, Multi-Timeframe Bot (Fast 30m, 45m, 1h)
 ====================================================================================
 Top 100 USDT perpetual futures coins, 3 timeframes (30m, 45m, 1h),
 Weighted Institutional Score (0-6) -> Stars (1-3) filter ke sath alert bhejta hai.
+Separate State File: alert_state_ebad1.json
 """
 
 import sys
@@ -15,7 +16,7 @@ import numpy as np
 import ccxt
 
 # ==========================================
-# 1. CONFIG & PARAMETERS (Fast Timeframes)
+# 1. CONFIG & PARAMETERS
 # ==========================================
 CONFIG = {
     "exchange": "mexc",
@@ -79,10 +80,11 @@ CONFIG = {
 }
 
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
-GMAIL_APP_PASSWORD = "pgmq hgoz kkwc dcwg"
+GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
 
-STATE_FILE = "alert_state_v5.json"
+# Is file ke liye alag JSON state file
+STATE_FILE = "alert_state_ebad1.json"
 
 mode_min_rel_vol = CONFIG["min_rel_vol_input"]
 if CONFIG["signal_mode"] == "Conservative":
@@ -119,7 +121,7 @@ def resample_to_45m(df15):
     return out
 
 # ==========================================
-# 3. TECHNICAL INDICATORS & V5 LOGIC
+# 3. TECHNICAL INDICATORS & LOGIC
 # ==========================================
 def ema(series, length):
     return series.ewm(span=length, adjust=False).mean()
@@ -225,7 +227,7 @@ def build_indicators_v5(df, cfg):
             df["confirm_short"] = prev_setup_short & (df["close"] < df["low"].shift(1)) & df["is_bear"]
         else:
             df["confirm_long"] = prev_setup_long & (df["close"] > df["close"].shift(1)) & df["is_bull"]
-            df["confirm_short"] = prev_setup_short & (df["close"] < df["low"].shift(1)) & df["is_bear"]
+            df["confirm_short"] = prev_setup_short & (df["close"] < df["close"].shift(1)) & df["is_bear"]
     else:
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
@@ -337,12 +339,12 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
             sl, tp = compute_levels(df, i, cfg, "long")
             entry = df["close"].iloc[i]
             star_str = "★" * stars + "☆" * (3 - stars)
-            body = (f"V5 LONG SIGNAL ({cfg['signal_mode']} Mode)\n"
+            body = (f"STRATEGY #2 LONG SIGNAL ({cfg['signal_mode']} Mode)\n"
                     f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
                     f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\n"
                     f"Score: {score}/6 | Quality: {star_str}\nVol USD: {usd_vol_str}")
-            print(f"V5 LONG {symbol} {timeframe} Stars={star_str} Score={score}/6")
-            ok = send_email(f"V5 LONG {symbol} ({timeframe}) {star_str}", body)
+            print(f"STRAT2 LONG {symbol} {timeframe} Stars={star_str} Score={score}/6")
+            ok = send_email(f"STRAT2 LONG {symbol} ({timeframe}) {star_str}", body)
             all_sent_ok = all_sent_ok and ok
 
     if df["confirm_short"].iloc[i]:
@@ -352,12 +354,12 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
             sl, tp = compute_levels(df, i, cfg, "short")
             entry = df["close"].iloc[i]
             star_str = "★" * stars + "☆" * (3 - stars)
-            body = (f"V5 SHORT SIGNAL ({cfg['signal_mode']} Mode)\n"
+            body = (f"STRATEGY #2 SHORT SIGNAL ({cfg['signal_mode']} Mode)\n"
                     f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
                     f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\n"
                     f"Score: {score}/6 | Quality: {star_str}\nVol USD: {usd_vol_str}")
-            print(f"V5 SHORT {symbol} {timeframe} Stars={star_str} Score={score}/6")
-            ok = send_email(f"V5 SHORT {symbol} ({timeframe}) {star_str}", body)
+            print(f"STRAT2 SHORT {symbol} {timeframe} Stars={star_str} Score={score}/6")
+            ok = send_email(f"STRAT2 SHORT {symbol} ({timeframe}) {star_str}", body)
             all_sent_ok = all_sent_ok and ok
 
     if all_sent_ok:
@@ -367,14 +369,13 @@ def run_live(cfg):
     ex_class = getattr(ccxt, cfg["exchange"])
     ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
 
-    print("Fetching top coins...")
+    print("Fetching top coins for Strategy #2...")
     symbols = get_top_coins(ex, cfg)
     print(f"Checking {len(symbols)} coins across 30m, 45m, 1h timeframes...")
 
     state = load_state()
 
     for symbol in symbols:
-        # Fetch 30m & 1h natively
         for tf in cfg["native_timeframes"]:
             try:
                 df = fetch_ohlcv_df(ex, symbol, tf, cfg["candles_to_fetch"])
@@ -383,7 +384,6 @@ def run_live(cfg):
                 print(f"{symbol} {tf}: fetch fail -> {e}")
                 continue
 
-        # Fetch 15m only to build 45m frame efficiently
         if cfg["also_build_45m"]:
             try:
                 df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
@@ -393,7 +393,7 @@ def run_live(cfg):
                 print(f"{symbol} 45m: fetch fail -> {e}")
 
     save_state(state)
-    print("Fast Scan completed successfully.")
+    print("Scan for Strategy #2 completed successfully.")
 
 def run_backtest(cfg, symbol, timeframe):
     ex_class = getattr(ccxt, cfg["exchange"])
@@ -409,7 +409,7 @@ def run_backtest(cfg, symbol, timeframe):
         if df["confirm_short"].iloc[i] and df["stars_short"].iloc[i] >= cfg["min_stars_to_show"]:
             signals.append((df["timestamp"].iloc[i], "SHORT", df["stars_short"].iloc[i], df["score_short"].iloc[i]))
 
-    print(f"\n{symbol} ({timeframe}) - {len(signals)} V5 Signals:")
+    print(f"\n{symbol} ({timeframe}) - {len(signals)} Strategy #2 Signals:")
     for ts, side, stars, score in signals:
         star_str = "★" * stars + "☆" * (3 - stars)
         print(f"  {ts}  {side}  Stars={star_str}  Score={score}/6")
@@ -426,4 +426,4 @@ if __name__ == "__main__":
         tf = sys.argv[3] if len(sys.argv) > 3 else "30m"
         run_backtest(CONFIG, sym, tf)
     else:
-        print("Usage: python3 coinglass_v5_multi.py [live|backtest SYMBOL TIMEFRAME]")
+        print("Usage: python3 <script_name>.py [live|backtest SYMBOL TIMEFRAME]")
