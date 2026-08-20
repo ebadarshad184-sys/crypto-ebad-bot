@@ -1,8 +1,9 @@
 """
-CoinGlass Strategy #2 - Python Multi-Coin, Multi-Timeframe Bot (Fast 30m, 45m, 1h)
+CoinGlass Strategy #2 - Python Multi-Coin, Multi-Timeframe Bot (Top 300 Coins)
 ====================================================================================
-Top 100 USDT perpetual futures coins, 3 timeframes (30m, 45m, 1h),
-Weighted Institutional Score (0-6) -> Stars (1-3) filter ke sath alert bhejta hai.
+Top 300 USDT perpetual futures coins, 4 timeframes (15m, 30m, 45m, 1h),
+Filter: Minimum Score 5/6 or 6/6 (3-Star Only) for Alerts.
+Timezone: Pakistan Standard Time (PKT).
 Separate State File: alert_state_ebad1.json
 """
 
@@ -21,9 +22,10 @@ import ccxt
 CONFIG = {
     "exchange": "mexc",
     "market_type": "swap",           # perpetual futures (USDT-M)
-    "native_timeframes": ["30m", "1h"],
+    "native_timeframes": ["15m", "30m", "1h"],
     "also_build_45m": True,          # 45m resampled from 15m base fetch
     "candles_to_fetch": 200,
+    "top_n_coins": 300,              # Top 300 coins filter
 
     # Mode: "Balanced", "Conservative", "More Signals"
     "signal_mode": "Balanced",
@@ -33,7 +35,7 @@ CONFIG = {
     "use_confirmation": True,
     "use_htf_filter": False,
 
-    "min_stars_to_show": 2,          # Minimum 2-Star (Score 3+) for alerts
+    "min_score_to_show": 5,          # Minimum Score 5/6 or 6/6 (3-Star) for alerts
     "min_body_ratio": 0.25,
     "inst_cmf_len": 20,
     "cmf_smooth_len": 5,
@@ -48,42 +50,13 @@ CONFIG = {
 
     "atr_length": 14,
     "atr_buffer_mult": 0.2,
-
-    # Fixed 100 Coin List
-    "fixed_coin_list": [
-        "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "BNB/USDT:USDT",
-        "XRP/USDT:USDT", "DOGE/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT",
-        "TRX/USDT:USDT", "LINK/USDT:USDT", "DOT/USDT:USDT", "MATIC/USDT:USDT",
-        "LTC/USDT:USDT", "SHIB/USDT:USDT", "BCH/USDT:USDT", "UNI/USDT:USDT",
-        "ATOM/USDT:USDT", "ETC/USDT:USDT", "NEAR/USDT:USDT", "APT/USDT:USDT",
-        "FIL/USDT:USDT", "ARB/USDT:USDT", "OP/USDT:USDT", "SUI/USDT:USDT",
-        "INJ/USDT:USDT", "TON/USDT:USDT", "SAND/USDT:USDT", "AAVE/USDT:USDT",
-        "XLM/USDT:USDT", "ALGO/USDT:USDT", "PEPE/USDT:USDT", "FET/USDT:USDT",
-        "RNDR/USDT:USDT", "TIA/USDT:USDT", "SEI/USDT:USDT", "STX/USDT:USDT",
-        "GALA/USDT:USDT", "ICP/USDT:USDT", "LDO/USDT:USDT", "IMX/USDT:USDT",
-        "WIF/USDT:USDT", "FLOKI/USDT:USDT", "BONK/USDT:USDT", "JUP/USDT:USDT",
-        "PENDLE/USDT:USDT", "PYTH/USDT:USDT", "ENA/USDT:USDT", "WLD/USDT:USDT",
-        "STRK/USDT:USDT", "ORDI/USDT:USDT", "RUNE/USDT:USDT", "GRT/USDT:USDT",
-        "THETA/USDT:USDT", "FTM/USDT:USDT", "EOS/USDT:USDT", "FLOW/USDT:USDT",
-        "AR/USDT:USDT", "MKR/USDT:USDT", "KAS/USDT:USDT", "NOT/USDT:USDT",
-        "CORE/USDT:USDT", "CFX/USDT:USDT", "MANA/USDT:USDT", "AXS/USDT:USDT",
-        "CHZ/USDT:USDT", "DYDX/USDT:USDT", "CRV/USDT:USDT", "COMP/USDT:USDT",
-        "SNX/USDT:USDT", "1INCH/USDT:USDT", "ENS/USDT:USDT", "AGIX/USDT:USDT",
-        "OCEAN/USDT:USDT", "ALT/USDT:USDT", "PORTAL/USDT:USDT", "MEME/USDT:USDT",
-        "SATS/USDT:USDT", "RATS/USDT:USDT", "BOME/USDT:USDT", "MEW/USDT:USDT",
-        "POPCAT/USDT:USDT", "BRETT/USDT:USDT", "NEO/USDT:USDT", "IOTA/USDT:USDT",
-        "XMR/USDT:USDT", "ZEC/USDT:USDT", "DASH/USDT:USDT", "EGLD/USDT:USDT",
-        "KAVA/USDT:USDT", "MINA/USDT:USDT", "ROSE/USDT:USDT", "WOO/USDT:USDT",
-        "JTO/USDT:USDT", "BLUR/USDT:USDT", "PIXEL/USDT:USDT", "MYRO/USDT:USDT",
-        "BEAM/USDT:USDT", "GMX/USDT:USDT", "ZRO/USDT:USDT", "IO/USDT:USDT",
-    ]
 }
 
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
 GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
 
-# Is file ke liye alag JSON state file
+# Separate JSON state file
 STATE_FILE = "alert_state_ebad1.json"
 
 mode_min_rel_vol = CONFIG["min_rel_vol_input"]
@@ -102,10 +75,12 @@ CONFIG["mode_min_rel_vol"] = mode_min_rel_vol
 def get_top_coins(ex, cfg):
     markets = ex.load_markets()
     valid = []
-    for sym in cfg["fixed_coin_list"]:
-        if sym in markets and markets[sym].get("active", True):
-            valid.append(sym)
-    return valid
+    for symbol, market in markets.items():
+        if market.get("swap", False) and market.get("active", True) and market.get("settle") == "USDT":
+            valid.append(symbol)
+    
+    # Return Top N coins
+    return valid[:cfg["top_n_coins"]]
 
 def fetch_ohlcv_df(ex, symbol, timeframe, limit):
     raw = ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
@@ -326,6 +301,7 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
     if state.get(state_key) == ts:
         return
 
+    # Pakistan Time Conversion (UTC + 5 Hours)
     ts_pkt = (df["timestamp"].iloc[i] + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " (PKT)"
     usd_vol = df["volume"].iloc[i] * df["close"].iloc[i]
     usd_vol_str = f"${usd_vol/1e6:.2f}M" if usd_vol >= 1e6 else f"${usd_vol/1e3:.1f}K"
@@ -335,7 +311,7 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
     if df["confirm_long"].iloc[i]:
         stars = int(df["stars_long"].iloc[i])
         score = int(df["score_long"].iloc[i])
-        if stars >= cfg["min_stars_to_show"]:
+        if score >= cfg["min_score_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "long")
             entry = df["close"].iloc[i]
             star_str = "★" * stars + "☆" * (3 - stars)
@@ -343,14 +319,14 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
                     f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
                     f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\n"
                     f"Score: {score}/6 | Quality: {star_str}\nVol USD: {usd_vol_str}")
-            print(f"STRAT2 LONG {symbol} {timeframe} Stars={star_str} Score={score}/6")
-            ok = send_email(f"STRAT2 LONG {symbol} ({timeframe}) {star_str}", body)
+            print(f"STRAT2 LONG {symbol} {timeframe} Score={score}/6 Stars={star_str}")
+            ok = send_email(f"STRAT2 LONG {symbol} ({timeframe}) Score {score}/6", body)
             all_sent_ok = all_sent_ok and ok
 
     if df["confirm_short"].iloc[i]:
         stars = int(df["stars_short"].iloc[i])
         score = int(df["score_short"].iloc[i])
-        if stars >= cfg["min_stars_to_show"]:
+        if score >= cfg["min_score_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "short")
             entry = df["close"].iloc[i]
             star_str = "★" * stars + "☆" * (3 - stars)
@@ -358,8 +334,8 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
                     f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
                     f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\n"
                     f"Score: {score}/6 | Quality: {star_str}\nVol USD: {usd_vol_str}")
-            print(f"STRAT2 SHORT {symbol} {timeframe} Stars={star_str} Score={score}/6")
-            ok = send_email(f"STRAT2 SHORT {symbol} ({timeframe}) {star_str}", body)
+            print(f"STRAT2 SHORT {symbol} {timeframe} Score={score}/6 Stars={star_str}")
+            ok = send_email(f"STRAT2 SHORT {symbol} ({timeframe}) Score {score}/6", body)
             all_sent_ok = all_sent_ok and ok
 
     if all_sent_ok:
@@ -369,9 +345,9 @@ def run_live(cfg):
     ex_class = getattr(ccxt, cfg["exchange"])
     ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
 
-    print("Fetching top coins for Strategy #2...")
+    print("Fetching top 300 coins for Strategy #2...")
     symbols = get_top_coins(ex, cfg)
-    print(f"Checking {len(symbols)} coins across 30m, 45m, 1h timeframes...")
+    print(f"Checking {len(symbols)} coins across 15m, 30m, 45m, 1h timeframes...")
 
     state = load_state()
 
@@ -404,15 +380,15 @@ def run_backtest(cfg, symbol, timeframe):
 
     signals = []
     for i in range(len(df)):
-        if df["confirm_long"].iloc[i] and df["stars_long"].iloc[i] >= cfg["min_stars_to_show"]:
+        if df["confirm_long"].iloc[i] and df["score_long"].iloc[i] >= cfg["min_score_to_show"]:
             signals.append((df["timestamp"].iloc[i], "LONG", df["stars_long"].iloc[i], df["score_long"].iloc[i]))
-        if df["confirm_short"].iloc[i] and df["stars_short"].iloc[i] >= cfg["min_stars_to_show"]:
+        if df["confirm_short"].iloc[i] and df["score_short"].iloc[i] >= cfg["min_score_to_show"]:
             signals.append((df["timestamp"].iloc[i], "SHORT", df["stars_short"].iloc[i], df["score_short"].iloc[i]))
 
-    print(f"\n{symbol} ({timeframe}) - {len(signals)} Strategy #2 Signals:")
+    print(f"\n{symbol} ({timeframe}) - {len(signals)} High Quality Signals (Score 5+):")
     for ts, side, stars, score in signals:
         star_str = "★" * stars + "☆" * (3 - stars)
-        print(f"  {ts}  {side}  Stars={star_str}  Score={score}/6")
+        print(f"  {ts}  {side}  Score={score}/6  Stars={star_str}")
 
 # ==========================================
 # 6. ENTRY POINT
