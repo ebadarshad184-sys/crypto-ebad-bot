@@ -3,11 +3,11 @@ CoinGlass Master Model v5 - Python Multi-Coin Scanner
 ====================================================================================
 - Top 300 Crypto USDT-M Futures Coins (MEXC)
 - Timeframes: 15m, 30m, 45m (resampled), 1h
-- Weighted Institutional Score (0-6) -> Star Rating (1-3)
-- Quality Filter: Minimum 2 Stars (Score >= 3 out of 6)
+- Score Filter: Strictly 4/6, 5/6, or 6/6
+- Star Mapping: Score 4 = 2 Stars (★★☆), Score 5-6 = 3 Stars (★★★)
 - Instant Live Closed Candle Alerts (Index: len(df) - 1)
 - Pakistan Standard Time (PKT / Asia/Karachi)
-- Separate State File: alert_state_ebad_v5.json
+- State File: alert_state_ebad_v5.json
 """
 
 import sys
@@ -40,7 +40,8 @@ CONFIG = {
     "require_whale_vol": False,
     "use_confirmation": True,
 
-    "min_stars_to_show": 2,           # Minimum 2 Stars (Score >= 3/6) required for Alert
+    "min_score_required": 4,          # Updated: Only Scores 4/6, 5/6, and 6/6 allowed
+    "min_stars_to_show": 2,           # Minimum 2 Stars
 
     "minBodyRatio": 0.25,
     "inst_cmf_len": 20,
@@ -212,7 +213,7 @@ def build_indicators_v5(df, cfg):
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
 
-    # Weighted Institutional Score (0-6 Score System)
+    # Weighted Institutional Score Calculation (0-6)
     score_long = (
         df["is_accum"].astype(int) +
         df["is_high_vol"].astype(int) +
@@ -228,17 +229,14 @@ def build_indicators_v5(df, cfg):
         (~df["bullish_div"]).astype(int)
     )
 
-    if cfg["use_htf_filter"]:
-        pass  # Extended if HTF enabled
-
     df["score_long"] = score_long
     df["score_short"] = score_short
 
-    # Convert Score (0-6) -> Stars (1-3)
+    # Updated Custom Star Mapping: Score 4 = 2 Stars (★★☆), Score 5-6 = 3 Stars (★★★)
     def calc_stars(score):
         if score >= 5:
             return 3
-        elif score >= 3:
+        elif score == 4:
             return 2
         return 1
 
@@ -322,10 +320,11 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
 
     all_sent_ok = True
 
+    # LONG Filter: Rating 4/6, 5/6, or 6/6 + Min 2 Stars
     if df["confirm_long"].iloc[i]:
-        stars = int(df["stars_long"].iloc[i])
         score = int(df["score_long"].iloc[i])
-        if stars >= cfg["min_stars_to_show"]:
+        stars = int(df["stars_long"].iloc[i])
+        if score >= cfg["min_score_required"] and stars >= cfg["min_stars_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "long")
             entry = df["close"].iloc[i]
             star_str = "★" * stars + "☆" * (3 - stars)
@@ -338,10 +337,11 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
             ok = send_email(f"V5 LONG {symbol} ({timeframe}) {star_str} ({score}/6)", body)
             all_sent_ok = all_sent_ok and ok
 
+    # SHORT Filter: Rating 4/6, 5/6, or 6/6 + Min 2 Stars
     if df["confirm_short"].iloc[i]:
-        stars = int(df["stars_short"].iloc[i])
         score = int(df["score_short"].iloc[i])
-        if stars >= cfg["min_stars_to_show"]:
+        stars = int(df["stars_short"].iloc[i])
+        if score >= cfg["min_score_required"] and stars >= cfg["min_stars_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "short")
             entry = df["close"].iloc[i]
             star_str = "★" * stars + "☆" * (3 - stars)
