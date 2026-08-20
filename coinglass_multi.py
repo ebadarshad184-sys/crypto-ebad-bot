@@ -3,7 +3,7 @@ CoinGlass Strategy #2 - Python Multi-Coin, Multi-Timeframe Bot (Top 300 Coins)
 ====================================================================================
 Top 300 USDT perpetual futures coins, 4 timeframes (15m, 30m, 45m, 1h),
 Filter: Minimum Score 5/6 or 6/6 (3-Star Only) for Alerts.
-Timezone: Pakistan Standard Time (PKT).
+Timezone: Pakistan Standard Time (PKT) Exact Real-Time Fix.
 Separate State File: alert_state_ebad1.json
 """
 
@@ -78,14 +78,12 @@ def get_top_coins(ex, cfg):
     for symbol, market in markets.items():
         if market.get("swap", False) and market.get("active", True) and market.get("settle") == "USDT":
             valid.append(symbol)
-    
-    # Return Top N coins
     return valid[:cfg["top_n_coins"]]
 
 def fetch_ohlcv_df(ex, symbol, timeframe, limit):
     raw = ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
     df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     return df
 
 def resample_to_45m(df15):
@@ -202,7 +200,7 @@ def build_indicators_v5(df, cfg):
             df["confirm_short"] = prev_setup_short & (df["close"] < df["low"].shift(1)) & df["is_bear"]
         else:
             df["confirm_long"] = prev_setup_long & (df["close"] > df["close"].shift(1)) & df["is_bull"]
-            df["confirm_short"] = prev_setup_short & (df["close"] < df["close"].shift(1)) & df["is_bear"]
+            df["confirm_short"] = prev_setup_short & (df["close"] < df["low"].shift(1)) & df["is_bear"]
     else:
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
@@ -293,16 +291,18 @@ def save_state(state):
 # ==========================================
 def check_one(df, symbol, timeframe, cfg, state, state_key):
     df = build_indicators_v5(df, cfg)
-    i = len(df) - 2
+    
+    # Latest closed candle check (Fixing old candle delay)
+    i = len(df) - 1
     if i < cfg["div_lookback"] + 5:
         return
 
-    ts = str(df["timestamp"].iloc[i])
-    if state.get(state_key) == ts:
+    ts_str = str(df["timestamp"].iloc[i])
+    if state.get(state_key) == ts_str:
         return
 
-    # Pakistan Time Conversion (UTC + 5 Hours)
-    ts_pkt = (df["timestamp"].iloc[i] + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " (PKT)"
+    # Real-time Pakistan Time Localizer
+    ts_pkt = df["timestamp"].iloc[i].tz_convert("Asia/Karachi").strftime("%Y-%m-%d %I:%M %p") + " (PKT)"
     usd_vol = df["volume"].iloc[i] * df["close"].iloc[i]
     usd_vol_str = f"${usd_vol/1e6:.2f}M" if usd_vol >= 1e6 else f"${usd_vol/1e3:.1f}K"
 
@@ -339,7 +339,7 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
             all_sent_ok = all_sent_ok and ok
 
     if all_sent_ok:
-        state[state_key] = ts
+        state[state_key] = ts_str
 
 def run_live(cfg):
     ex_class = getattr(ccxt, cfg["exchange"])
