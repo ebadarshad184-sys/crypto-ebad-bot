@@ -1,11 +1,10 @@
 """
-CoinGlass Master Model v5 - Python Multi-Coin Scanner
+CoinGlass Master Model v5 - Binance Futures Fast Scanner
 ====================================================================================
-- Top 300 Crypto USDT-M Futures Coins (MEXC)
-- Timeframes: 15m, 30m, 45m (resampled), 1h
-- Score Filter: Strictly 4/6, 5/6, or 6/6
-- Star Mapping: Score 4 = 2 Stars (★★☆), Score 5-6 = 3 Stars (★★★)
-- Instant Live Closed Candle Alerts (Index: len(df) - 1)
+- Exchange: Binance USDT-M Futures (Top 300 Coins)
+- Timeframes: 15m, 30m, 45m (resampled), 1h, 2h
+- Score Filter: Strictly 4/6, 5/6, or 6/6 (Min 2 Stars)
+- Instant Live Closed Candle Alerts
 - Pakistan Standard Time (PKT / Asia/Karachi)
 - State File: alert_state_ebad_v5.json
 """
@@ -23,12 +22,12 @@ import ccxt
 # 1. CONFIG & PARAMETERS
 # ==========================================
 CONFIG = {
-    "exchange": "mexc",
+    "exchange": "binance",            # Switched to Binance
     "market_type": "swap",            # USDT-M Futures
-    "native_timeframes": ["15m", "30m", "1h"],
+    "native_timeframes": ["15m", "30m", "1h", "2h"],
     "also_build_45m": True,
-    "candles_to_fetch": 200,
-    "top_n_coins": 300,               # Top 300 Crypto Coins
+    "candles_to_fetch": 60,           # Fast data fetching
+    "top_n_coins": 300,               # Top 300 Crypto Coins on Binance
 
     # Strategy Mode: "Conservative", "Balanced", "More Signals"
     "signal_mode": "Balanced",
@@ -40,7 +39,7 @@ CONFIG = {
     "require_whale_vol": False,
     "use_confirmation": True,
 
-    "min_score_required": 4,          # Updated: Only Scores 4/6, 5/6, and 6/6 allowed
+    "min_score_required": 4,          # Rating 4/6, 5/6, 6/6
     "min_stars_to_show": 2,           # Minimum 2 Stars
 
     "minBodyRatio": 0.25,
@@ -66,12 +65,13 @@ TO_EMAIL = "arshadebad5@gmail.com"
 STATE_FILE = "alert_state_ebad_v5.json"
 
 # ==========================================
-# 2. DATA FETCHING & RESAMPLING
+# 2. DATA FETCHING & RESAMPLING (BINANCE)
 # ==========================================
 def get_top_coins(ex, cfg):
     markets = ex.load_markets()
     valid = []
     for symbol, market in markets.items():
+        # Binance USDT-M Futures verification
         if market.get("swap", False) and market.get("active", True) and market.get("settle") == "USDT":
             valid.append(symbol)
     return valid[:cfg["top_n_coins"]]
@@ -108,7 +108,6 @@ def wilder_atr(df, length):
 def build_indicators_v5(df, cfg):
     df = df.copy()
 
-    # Dynamic Mode Thresholds
     signal_mode = cfg["signal_mode"]
     mode_min_rel_vol = cfg["min_rel_vol_input"]
     if signal_mode == "Conservative":
@@ -122,13 +121,11 @@ def build_indicators_v5(df, cfg):
     strict_confirmation = (signal_mode == "Conservative")
     flexible_flow = (signal_mode != "Conservative")
 
-    # EMAs & ATR
     df["ema_fast"] = ema(df["close"], cfg["ema_fast_len"])
     df["ema_slow"] = ema(df["close"], cfg["ema_slow_len"])
     df["atr"] = wilder_atr(df, cfg["atr_length"])
     df["step"] = df["atr"] * 0.4
 
-    # Relative Volume
     df["vol_ema"] = ema(df["volume"], cfg["vol_ema_length"])
     df["rel_vol"] = np.where(df["vol_ema"] > 0, df["volume"] / df["vol_ema"], 1.0)
     df["is_high_vol"] = df["rel_vol"] >= mode_min_rel_vol
@@ -136,7 +133,6 @@ def build_indicators_v5(df, cfg):
 
     vol_break = df["is_whale_vol"] if cfg["require_whale_vol"] else df["is_high_vol"]
 
-    # CMF Calculation
     hl_range = (df["high"] - df["low"]).replace(0, 1)
     mfv = ((df["close"] - df["low"]) - (df["high"] - df["close"])) / hl_range * df["volume"]
     cmf_raw = sma(mfv, cfg["inst_cmf_len"]) / sma(df["volume"], cfg["inst_cmf_len"])
@@ -156,7 +152,6 @@ def build_indicators_v5(df, cfg):
         df["pass_cmf_long"] = True
         df["pass_cmf_short"] = True
 
-    # Divergence
     lb = cfg["div_lookback"]
     bearish_div = (df["close"] > df["close"].shift(lb)) & (df["cmf"] < df["cmf"].shift(lb)) & (df["cmf"] < df["cmf"].shift(1))
     bullish_div = (df["close"] < df["close"].shift(lb)) & (df["cmf"] > df["cmf"].shift(lb)) & (df["cmf"] > df["cmf"].shift(1))
@@ -167,7 +162,6 @@ def build_indicators_v5(df, cfg):
     df["pass_div_long"] = ~df["bearish_div"] if cfg["use_div_filter"] else True
     df["pass_div_short"] = ~df["bullish_div"] if cfg["use_div_filter"] else True
 
-    # Body Filter
     candle_range = df["high"] - df["low"]
     body = (df["close"] - df["open"]).abs()
     df["is_solid_body"] = (candle_range > 0) & ((body / candle_range) >= cfg["minBodyRatio"])
@@ -178,7 +172,6 @@ def build_indicators_v5(df, cfg):
     df["ema_align_long"] = df["ema_fast"] > df["ema_slow"]
     df["ema_align_short"] = df["ema_fast"] < df["ema_slow"]
 
-    # Breakout Conditions
     if strict_breakout:
         df["break_long"] = df["close"] > df["high"].shift(1)
         df["break_short"] = df["close"] < df["low"].shift(1)
@@ -192,7 +185,6 @@ def build_indicators_v5(df, cfg):
     df["setup_long"] = df["break_both_ema_long"] & df["ema_align_long"] & vol_break & df["is_solid_body"] & df["pass_cmf_long"] & df["pass_div_long"]
     df["setup_short"] = df["break_both_ema_short"] & df["ema_align_short"] & vol_break & df["is_solid_body"] & df["pass_cmf_short"] & df["pass_div_short"]
 
-    # Confirmation
     prev_setup_long = df["setup_long"].shift(1).fillna(False)
     prev_setup_short = df["setup_short"].shift(1).fillna(False)
 
@@ -213,7 +205,6 @@ def build_indicators_v5(df, cfg):
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
 
-    # Weighted Institutional Score Calculation (0-6)
     score_long = (
         df["is_accum"].astype(int) +
         df["is_high_vol"].astype(int) +
@@ -232,7 +223,6 @@ def build_indicators_v5(df, cfg):
     df["score_long"] = score_long
     df["score_short"] = score_short
 
-    # Updated Custom Star Mapping: Score 4 = 2 Stars (★★☆), Score 5-6 = 3 Stars (★★★)
     def calc_stars(score):
         if score >= 5:
             return 3
@@ -304,7 +294,7 @@ def save_state(state):
 def check_one(df, symbol, timeframe, cfg, state, state_key):
     df = build_indicators_v5(df, cfg)
 
-    # Real-Time Fix: Latest closed candle (Index len - 1)
+    # Real-Time Closed Candle Check (Latest closed candle index)
     i = len(df) - 1
     if i < cfg["div_lookback"] + 5:
         return
@@ -313,14 +303,12 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
     if state.get(state_key) == ts_str:
         return
 
-    # Exact PKT Conversion
     ts_pkt = df["timestamp"].iloc[i].tz_convert("Asia/Karachi").strftime("%Y-%m-%d %I:%M %p") + " (PKT)"
     usd_vol = df["volume"].iloc[i] * df["close"].iloc[i]
     usd_vol_str = f"${usd_vol/1e6:.2f}M" if usd_vol >= 1e6 else f"${usd_vol/1e3:.1f}K"
 
     all_sent_ok = True
 
-    # LONG Filter: Rating 4/6, 5/6, or 6/6 + Min 2 Stars
     if df["confirm_long"].iloc[i]:
         score = int(df["score_long"].iloc[i])
         stars = int(df["stars_long"].iloc[i])
@@ -328,7 +316,7 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
             sl, tp = compute_levels(df, i, cfg, "long")
             entry = df["close"].iloc[i]
             star_str = "★" * stars + "☆" * (3 - stars)
-            body = (f"COINGLASS MASTER MODEL V5 - LONG SIGNAL\n"
+            body = (f"COINGLASS MASTER MODEL V5 (BINANCE) - LONG SIGNAL\n"
                     f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
                     f"Mode: {cfg['signal_mode']}\n"
                     f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\n"
@@ -337,7 +325,6 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
             ok = send_email(f"V5 LONG {symbol} ({timeframe}) {star_str} ({score}/6)", body)
             all_sent_ok = all_sent_ok and ok
 
-    # SHORT Filter: Rating 4/6, 5/6, or 6/6 + Min 2 Stars
     if df["confirm_short"].iloc[i]:
         score = int(df["score_short"].iloc[i])
         stars = int(df["stars_short"].iloc[i])
@@ -345,7 +332,7 @@ def check_one(df, symbol, timeframe, cfg, state, state_key):
             sl, tp = compute_levels(df, i, cfg, "short")
             entry = df["close"].iloc[i]
             star_str = "★" * stars + "☆" * (3 - stars)
-            body = (f"COINGLASS MASTER MODEL V5 - SHORT SIGNAL\n"
+            body = (f"COINGLASS MASTER MODEL V5 (BINANCE) - SHORT SIGNAL\n"
                     f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
                     f"Mode: {cfg['signal_mode']}\n"
                     f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\n"
@@ -361,9 +348,9 @@ def run_live(cfg):
     ex_class = getattr(ccxt, cfg["exchange"])
     ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
 
-    print("Fetching top 300 coins for CoinGlass Master Model v5...")
+    print("Fetching top 300 coins from Binance Futures...")
     symbols = get_top_coins(ex, cfg)
-    print(f"Checking {len(symbols)} coins across 15m, 30m, 45m, 1h timeframes...")
+    print(f"Checking {len(symbols)} coins across 15m, 30m, 45m, 1h, 2h timeframes...")
 
     state = load_state()
 
@@ -373,7 +360,6 @@ def run_live(cfg):
                 df = fetch_ohlcv_df(ex, symbol, tf, cfg["candles_to_fetch"])
                 check_one(df, symbol, tf, cfg, state, f"{symbol}_{tf}")
             except Exception as e:
-                print(f"{symbol} {tf}: fetch fail -> {e}")
                 continue
 
         if cfg["also_build_45m"]:
@@ -382,10 +368,10 @@ def run_live(cfg):
                 df45 = resample_to_45m(df15)
                 check_one(df45, symbol, "45m", cfg, state, f"{symbol}_45m")
             except Exception as e:
-                print(f"{symbol} 45m: fetch fail -> {e}")
+                pass
 
     save_state(state)
-    print("Scan for CoinGlass Master Model v5 completed successfully.")
+    print("Scan for CoinGlass Master Model v5 (Binance) completed successfully.")
 
 if __name__ == "__main__":
     run_live(CONFIG)
