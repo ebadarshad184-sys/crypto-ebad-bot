@@ -19,7 +19,7 @@ import ccxt
 # 1. CONFIG & PARAMETERS
 # ==========================================
 CONFIG = {
-    "exchange": "bybit",
+    "exchange": "mexc",
     "market_type": "swap",          # USD-M Futures
     "native_timeframes": ["15m", "30m", "1h"],
     "also_build_45m": True,
