@@ -1,7 +1,7 @@
 """
 CoinGlass Master Model v5 - Weighted Institutional Score (Multi-Threaded Fast Edition)
 ========================================================================================
-- Top 50 Popular USDT-M Futures Crypto Coins
+- Batch 1: Top 1–50 Popular USDT-M Futures Crypto Coins
 - Timeframes: 15m, 30m, 45m (resampled), 1h, 2h
 - Multi-Threaded Parallel Execution (Scan completes in ~3-5 seconds)
 - Weighted Institutional Score (Mode-based logic)
@@ -53,7 +53,7 @@ CONFIG = {
     "atr_length": 14,
     "atr_buffer_mult": 0.2,
 
-    # Top 50 High-Volume Crypto Perpetual Pairs Only
+    # Batch 1: Coins 1 to 50
     "fixed_coin_list": [
         "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "BNB/USDT:USDT",
         "XRP/USDT:USDT", "DOGE/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT",
@@ -76,7 +76,8 @@ GMAIL_ADDRESS = "arshadebad5@gmail.com"
 GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
 
-STATE_FILE = "alert_state_v5.json"
+# UNIQUE STATE FILE FOR V5 BATCH 1
+STATE_FILE = "alert_state_v5_b1.json"
 
 # ==========================================
 # 2. INDICATORS & RESAMPLING
@@ -210,7 +211,6 @@ def build_indicators(df, cfg):
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
 
-    # Weighted Institutional Score Evaluation
     score_long = (
         df["is_accum"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
         + df["ema_align_long"].astype(int) + (~df["bearish_div"]).astype(int)
@@ -294,14 +294,13 @@ def save_state(state):
 def process_symbol_v5(symbol, ex, cfg, state, now_utc):
     alerts = []
 
-    # Process Native Timeframes (15m, 30m, 1h, 2h)
     for tf in cfg["native_timeframes"]:
         try:
             raw = ex.fetch_ohlcv(symbol, timeframe=tf, limit=cfg["candles_to_fetch"])
             df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
 
-            i = len(df) - 2  # Strict Closed Candle
+            i = len(df) - 2
             if i < cfg["div_lookback"] + 5:
                 continue
 
@@ -309,7 +308,6 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
             state_key = f"{symbol}_{tf}"
             ts_str = str(candle_time)
 
-            # Skip outdated candles
             age_minutes = (now_utc - candle_time).total_seconds() / 60
             tf_minutes = {"15m": 15, "30m": 30, "45m": 45, "1h": 60, "2h": 120}.get(tf, 60)
             if age_minutes > tf_minutes * 2.5:
@@ -328,7 +326,7 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
                     sl, tp = compute_levels(df_calc, i, cfg, "long")
                     entry = df_calc["close"].iloc[i]
                     star_str = "*" * stars + "-" * (3 - stars)
-                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']} (v5 Batch 1)\nTime: {ts_pkt}\n"
                             f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df_calc['score_long'].iloc[i])}/5)")
                     alerts.append((state_key, ts_str, f"LONG {symbol} ({tf}) {star_str}", body))
 
@@ -338,14 +336,13 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
                     sl, tp = compute_levels(df_calc, i, cfg, "short")
                     entry = df_calc["close"].iloc[i]
                     star_str = "*" * stars + "-" * (3 - stars)
-                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']} (v5 Batch 1)\nTime: {ts_pkt}\n"
                             f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df_calc['score_short'].iloc[i])}/5)")
                     alerts.append((state_key, ts_str, f"SHORT {symbol} ({tf}) {star_str}", body))
 
         except Exception:
             continue
 
-    # Process Resampled 45m Timeframe
     if cfg["also_build_45m"]:
         try:
             raw15 = ex.fetch_ohlcv(symbol, timeframe="15m", limit=cfg["candles_to_fetch"])
@@ -370,7 +367,7 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
                             sl, tp = compute_levels(df45_calc, i, cfg, "long")
                             entry = df45_calc["close"].iloc[i]
                             star_str = "*" * stars + "-" * (3 - stars)
-                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']} (v5 Batch 1)\nTime: {ts_pkt}\n"
                                     f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df45_calc['score_long'].iloc[i])}/5)")
                             alerts.append((state_key, ts_str, f"LONG {symbol} (45m) {star_str}", body))
 
@@ -380,7 +377,7 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
                             sl, tp = compute_levels(df45_calc, i, cfg, "short")
                             entry = df45_calc["close"].iloc[i]
                             star_str = "*" * stars + "-" * (3 - stars)
-                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']} (v5 Batch 1)\nTime: {ts_pkt}\n"
                                     f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df45_calc['score_short'].iloc[i])}/5)")
                             alerts.append((state_key, ts_str, f"SHORT {symbol} (45m) {star_str}", body))
         except Exception:
@@ -400,7 +397,7 @@ def run_live(cfg):
     valid_symbols = [sym for sym in cfg["fixed_coin_list"] if sym in markets and markets[sym].get("active", True)]
     state = load_state()
 
-    print(f"🚀 Scanning Top {len(valid_symbols)} Crypto Coins across 15m, 30m, 45m, 1h, 2h (v5 Model)...")
+    print(f"🚀 Scanning Coins 1-50 ({len(valid_symbols)} Active Pairs) - v5 Model...")
 
     pending_alerts = []
     with ThreadPoolExecutor(max_workers=cfg["max_threads"]) as executor:
@@ -415,8 +412,9 @@ def run_live(cfg):
             state[state_key] = ts_str
 
     save_state(state)
-    print("✅ Fast Scan Completed.")
+    print("✅ v5 Batch 1 Scan Completed.")
 
 if __name__ == "__main__":
     run_live(CONFIG)
+
 
