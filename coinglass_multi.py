@@ -1,12 +1,21 @@
 """
-CoinGlass Master Model v5 - Fast Scanner with 2H Timeframe
-====================================================================================
-- Top 300 Crypto USDT-M Futures Coins (MEXC)
-- Timeframes: 15m, 30m, 45m (resampled), 1h, 2h
-- Score Filter: Strictly 4/6, 5/6, or 6/6 (Min 2 Stars)
-- Instant Live Closed Candle Alerts
-- Pakistan Standard Time (PKT / Asia/Karachi)
-- State File: alert_state_ebad_v5.json
+CoinGlass Master Model v5 - Weighted Institutional Score (Python)
+=====================================================================
+Pine v5 (Weighted Institutional Score, mode-based) ka Python conversion.
+MEXC perpetual swap, top ~300 coins (dynamic, no stablecoins/leveraged tokens),
+Timeframes: 15m, 30m, 45m, 1h, 2h.
+Sirf NAYE confirmed signals pe email (purani/beeti hui candle kabhi nahi).
+
+SACH KEHTA HOON: 300 coins x 5 timeframes = ~1200 API calls per run.
+Isme khud 5-10 minute lag sakte hain. "1-2 min ke andar mail" is scale
+pe possible nahi - agar chahiye to coin count kam karo (CONFIG mein
+"max_coins" badal do, jaise 300 se 60).
+
+Setup:
+  pip install ccxt pandas numpy --break-system-packages
+  GMAIL_ADDRESS / GMAIL_APP_PASSWORD / TO_EMAIL neeche fill karo.
+
+Command: python3 coinglass_v5.py live
 """
 
 import sys
@@ -19,30 +28,27 @@ import numpy as np
 import ccxt
 
 # ==========================================
-# 1. CONFIG & PARAMETERS
+# 1. CONFIG
 # ==========================================
 CONFIG = {
     "exchange": "mexc",
-    "market_type": "swap",            # USDT-M Futures
-    "native_timeframes": ["15m", "30m", "1h", "2h"],  # Added 2h timeframe
-    "also_build_45m": True,
-    "candles_to_fetch": 60,           # Fast fetching to prevent late alerts
-    "top_n_coins": 300,               # Top 300 Crypto Coins
+    "market_type": "swap",
+    "max_coins": 300,                 # jitne coins chahiye (dynamic, volume ke hisaab se)
+    "native_timeframes": ["15m", "30m", "1h", "2h"],
+    "also_build_45m": True,           # 45m 15m data se resample hoga
+    "candles_to_fetch": 120,          # kam rakha hai speed ke liye (300 coins ke liye zaroori)
 
-    # Strategy Mode: "Conservative", "Balanced", "More Signals"
-    "signal_mode": "Balanced",
+    "signal_mode": "Balanced",        # "Conservative" / "Balanced" / "More Signals"
+    "min_stars_to_show": 2,           # 1,2,3 - jitna zyada utna strict/kam signals
 
-    "use_htf_filter": False,
-    "htf_timeframe": "1h",
     "use_cmf_filter": True,
     "use_div_filter": True,
     "require_whale_vol": False,
     "use_confirmation": True,
+    # HTF filter Python version mein OFF hai (extra API calls bacha ne ke liye,
+    # 300 coins ke sath already bohot calls ho rahi hain)
 
-    "min_score_required": 4,          # Rating 4/6, 5/6, 6/6
-    "min_stars_to_show": 2,           # Minimum 2 Stars
-
-    "minBodyRatio": 0.25,
+    "min_body_ratio": 0.25,
     "inst_cmf_len": 20,
     "cmf_smooth_len": 5,
     "div_lookback": 10,
@@ -56,29 +62,54 @@ CONFIG = {
 
     "atr_length": 14,
     "atr_buffer_mult": 0.2,
+
+    # Yeh symbols/patterns exclude honge (leveraged tokens, stablecoin pairs)
+    "exclude_patterns": ["3L", "3S", "5L", "5S", "BULL", "BEAR", "UP/", "DOWN/"],
+    "exclude_bases": ["USDC", "DAI", "TUSD", "BUSD", "FDUSD", "USDT"],
 }
 
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
-GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
+GMAIL_APP_PASSWORD = "pgmq hgoz kkwc dcwg"
 TO_EMAIL = "arshadebad5@gmail.com"
 
-STATE_FILE = "alert_state_ebad_v5.json"
+STATE_FILE = "alert_state_v5.json"
 
 # ==========================================
-# 2. DATA FETCHING & RESAMPLING
+# 2. DYNAMIC TOP N COINS (no stablecoins, no leveraged tokens)
 # ==========================================
 def get_top_coins(ex, cfg):
     markets = ex.load_markets()
-    valid = []
-    for symbol, market in markets.items():
-        if market.get("swap", False) and market.get("active", True) and market.get("settle") == "USDT":
-            valid.append(symbol)
-    return valid[:cfg["top_n_coins"]]
+    candidates = []
+    for sym, m in markets.items():
+        if not m.get("swap"):
+            continue
+        if m.get("quote") != "USDT":
+            continue
+        if not m.get("active", True):
+            continue
+        base = m.get("base", "")
+        if base in cfg["exclude_bases"]:
+            continue
+        if any(pat in sym for pat in cfg["exclude_patterns"]):
+            continue
+        candidates.append(sym)
 
+    tickers = ex.fetch_tickers(candidates)
+    ranked = sorted(
+        tickers.items(),
+        key=lambda kv: (kv[1].get("quoteVolume") or 0),
+        reverse=True,
+    )
+    top = [sym for sym, _ in ranked[: cfg["max_coins"]]]
+    return top
+
+# ==========================================
+# 3. DATA FETCH
+# ==========================================
 def fetch_ohlcv_df(ex, symbol, timeframe, limit):
     raw = ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
     df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     return df
 
 def resample_to_45m(df15):
@@ -89,7 +120,7 @@ def resample_to_45m(df15):
     return out
 
 # ==========================================
-# 3. TECHNICAL INDICATORS & V5 LOGIC
+# 4. INDICATORS (Pine v5 mode logic)
 # ==========================================
 def ema(series, length):
     return series.ewm(span=length, adjust=False).mean()
@@ -104,21 +135,21 @@ def wilder_atr(df, length):
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     return tr.ewm(alpha=1 / length, adjust=False).mean()
 
-def build_indicators_v5(df, cfg):
+def build_indicators(df, cfg):
     df = df.copy()
 
-    signal_mode = cfg["signal_mode"]
+    mode = cfg["signal_mode"]
     mode_min_rel_vol = cfg["min_rel_vol_input"]
-    if signal_mode == "Conservative":
+    if mode == "Conservative":
         mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.30)
-    elif signal_mode == "Balanced":
+    elif mode == "Balanced":
         mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.10)
-    elif signal_mode == "More Signals":
+    elif mode == "More Signals":
         mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.00)
 
-    strict_breakout = (signal_mode == "Conservative")
-    strict_confirmation = (signal_mode == "Conservative")
-    flexible_flow = (signal_mode != "Conservative")
+    strict_breakout = (mode == "Conservative")
+    strict_confirmation = (mode == "Conservative")
+    flexible_flow = (mode != "Conservative")
 
     df["ema_fast"] = ema(df["close"], cfg["ema_fast_len"])
     df["ema_slow"] = ema(df["close"], cfg["ema_slow_len"])
@@ -152,18 +183,18 @@ def build_indicators_v5(df, cfg):
         df["pass_cmf_short"] = True
 
     lb = cfg["div_lookback"]
-    bearish_div = (df["close"] > df["close"].shift(lb)) & (df["cmf"] < df["cmf"].shift(lb)) & (df["cmf"] < df["cmf"].shift(1))
-    bullish_div = (df["close"] < df["close"].shift(lb)) & (df["cmf"] > df["cmf"].shift(lb)) & (df["cmf"] > df["cmf"].shift(1))
-
-    df["bearish_div"] = bearish_div.fillna(False)
-    df["bullish_div"] = bullish_div.fillna(False)
-
-    df["pass_div_long"] = ~df["bearish_div"] if cfg["use_div_filter"] else True
-    df["pass_div_short"] = ~df["bullish_div"] if cfg["use_div_filter"] else True
+    df["bearish_div"] = (df["close"] > df["close"].shift(lb)) & (df["cmf"] < df["cmf"].shift(lb)) & (df["cmf"] < df["cmf"].shift(1))
+    df["bullish_div"] = (df["close"] < df["close"].shift(lb)) & (df["cmf"] > df["cmf"].shift(lb)) & (df["cmf"] > df["cmf"].shift(1))
+    if cfg["use_div_filter"]:
+        df["pass_div_long"] = ~df["bearish_div"]
+        df["pass_div_short"] = ~df["bullish_div"]
+    else:
+        df["pass_div_long"] = True
+        df["pass_div_short"] = True
 
     candle_range = df["high"] - df["low"]
     body = (df["close"] - df["open"]).abs()
-    df["is_solid_body"] = (candle_range > 0) & ((body / candle_range) >= cfg["minBodyRatio"])
+    df["is_solid_body"] = (candle_range > 0) & ((body / candle_range) >= cfg["min_body_ratio"])
 
     df["is_bull"] = df["close"] > df["open"]
     df["is_bear"] = df["close"] < df["open"]
@@ -171,66 +202,70 @@ def build_indicators_v5(df, cfg):
     df["ema_align_long"] = df["ema_fast"] > df["ema_slow"]
     df["ema_align_short"] = df["ema_fast"] < df["ema_slow"]
 
+    prev_high = df["high"].shift(1)
+    prev_low = df["low"].shift(1)
+    prev_close = df["close"].shift(1)
+
     if strict_breakout:
-        df["break_long"] = df["close"] > df["high"].shift(1)
-        df["break_short"] = df["close"] < df["low"].shift(1)
+        break_long_cond = df["close"] > prev_high
+        break_short_cond = df["close"] < prev_low
     else:
-        df["break_long"] = df["close"] > df["close"].shift(1)
-        df["break_short"] = df["close"] < df["close"].shift(1)
+        break_long_cond = df["close"] > prev_close
+        break_short_cond = df["close"] < prev_close
 
-    df["break_both_ema_long"] = df["is_bull"] & (df["open"] < df["ema_slow"]) & (df["close"] > df["ema_fast"]) & (df["close"] > df["ema_slow"]) & df["break_long"]
-    df["break_both_ema_short"] = df["is_bear"] & (df["open"] > df["ema_slow"]) & (df["close"] < df["ema_fast"]) & (df["close"] < df["ema_slow"]) & df["break_short"]
+    df["break_both_ema_long"] = (
+        df["is_bull"] & (df["open"] < df["ema_slow"]) & (df["close"] > df["ema_fast"])
+        & (df["close"] > df["ema_slow"]) & break_long_cond
+    )
+    df["break_both_ema_short"] = (
+        df["is_bear"] & (df["open"] > df["ema_slow"]) & (df["close"] < df["ema_fast"])
+        & (df["close"] < df["ema_slow"]) & break_short_cond
+    )
 
-    df["setup_long"] = df["break_both_ema_long"] & df["ema_align_long"] & vol_break & df["is_solid_body"] & df["pass_cmf_long"] & df["pass_div_long"]
-    df["setup_short"] = df["break_both_ema_short"] & df["ema_align_short"] & vol_break & df["is_solid_body"] & df["pass_cmf_short"] & df["pass_div_short"]
-
-    prev_setup_long = df["setup_long"].shift(1).fillna(False)
-    prev_setup_short = df["setup_short"].shift(1).fillna(False)
-
-    confirm_long_strict = prev_setup_long & (df["close"] > df["high"].shift(1)) & df["is_bull"]
-    confirm_short_strict = prev_setup_short & (df["close"] < df["low"].shift(1)) & df["is_bear"]
-
-    confirm_long_flexible = prev_setup_long & (df["close"] > df["close"].shift(1)) & df["is_bull"]
-    confirm_short_flexible = prev_setup_short & (df["close"] < df["close"].shift(1)) & df["is_bear"]
+    df["setup_long"] = (
+        df["break_both_ema_long"] & df["ema_align_long"] & vol_break
+        & df["is_solid_body"] & df["pass_cmf_long"] & df["pass_div_long"]
+    )
+    df["setup_short"] = (
+        df["break_both_ema_short"] & df["ema_align_short"] & vol_break
+        & df["is_solid_body"] & df["pass_cmf_short"] & df["pass_div_short"]
+    )
 
     if cfg["use_confirmation"]:
+        prev_setup_long = df["setup_long"].shift(1).fillna(False)
+        prev_setup_short = df["setup_short"].shift(1).fillna(False)
         if strict_confirmation:
-            df["confirm_long"] = confirm_long_strict
-            df["confirm_short"] = confirm_short_strict
+            df["confirm_long"] = prev_setup_long & (df["close"] > prev_high) & df["is_bull"]
+            df["confirm_short"] = prev_setup_short & (df["close"] < prev_low) & df["is_bear"]
         else:
-            df["confirm_long"] = confirm_long_flexible
-            df["confirm_short"] = confirm_short_flexible
+            df["confirm_long"] = prev_setup_long & (df["close"] > prev_close) & df["is_bull"]
+            df["confirm_short"] = prev_setup_short & (df["close"] < prev_close) & df["is_bear"]
     else:
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
 
+    # Weighted score 0-6
     score_long = (
-        df["is_accum"].astype(int) +
-        df["is_high_vol"].astype(int) +
-        df["is_whale_vol"].astype(int) +
-        df["ema_align_long"].astype(int) +
-        (~df["bearish_div"]).astype(int)
+        df["is_accum"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
+        + df["ema_align_long"].astype(int) + (~df["bearish_div"]).astype(int)
     )
     score_short = (
-        df["is_distrib"].astype(int) +
-        df["is_high_vol"].astype(int) +
-        df["is_whale_vol"].astype(int) +
-        df["ema_align_short"].astype(int) +
-        (~df["bullish_div"]).astype(int)
+        df["is_distrib"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
+        + df["ema_align_short"].astype(int) + (~df["bullish_div"]).astype(int)
     )
-
     df["score_long"] = score_long
     df["score_short"] = score_short
 
-    def calc_stars(score):
+    def star_rating(score):
         if score >= 5:
             return 3
-        elif score == 4:
+        elif score >= 3:
             return 2
-        return 1
+        else:
+            return 1
 
-    df["stars_long"] = df["score_long"].apply(calc_stars)
-    df["stars_short"] = df["score_short"].apply(calc_stars)
+    df["stars_long"] = df["score_long"].apply(star_rating)
+    df["stars_short"] = df["score_short"].apply(star_rating)
 
     return df
 
@@ -254,7 +289,7 @@ def compute_levels(df, i, cfg, side):
     return sl, tp
 
 # ==========================================
-# 4. EMAIL & STATE MANAGEMENT
+# 5. EMAIL
 # ==========================================
 def send_email(subject, body):
     msg = MIMEText(body)
@@ -262,115 +297,127 @@ def send_email(subject, body):
     msg["From"] = GMAIL_ADDRESS
     msg["To"] = TO_EMAIL
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD.replace(" ", ""))
             server.sendmail(GMAIL_ADDRESS, TO_EMAIL, msg.as_string())
-        print("  -> Email sent:", subject)
+        print("  -> Email bhej diya:", subject)
         return True
     except Exception as e:
         print("  -> Email FAIL:", e)
         return False
 
+# ==========================================
+# 6. STATE
+# ==========================================
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
-            with open(STATE_FILE, "r") as f:
+            with open(STATE_FILE) as f:
                 return json.load(f)
         except Exception:
-            pass
+            return {}
     return {}
 
 def save_state(state):
-    try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f, indent=4)
-    except Exception as e:
-        print(f"State save error: {e}")
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
 
 # ==========================================
-# 5. SCANNER EXECUTION
+# 7. CHECK ONE SYMBOL+TIMEFRAME (sirf NAYI candle pe alert)
 # ==========================================
-def check_one(df, symbol, timeframe, cfg, state, state_key):
-    df = build_indicators_v5(df, cfg)
-
-    # Real-Time Closed Candle Check (Latest closed candle index)
-    i = len(df) - 1
+def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc):
+    df = build_indicators(df, cfg)
+    i = len(df) - 2   # last CLOSED candle
     if i < cfg["div_lookback"] + 5:
         return
 
-    ts_str = str(df["timestamp"].iloc[i])
-    if state.get(state_key) == ts_str:
+    candle_time = df["timestamp"].iloc[i]
+    ts = str(candle_time)
+
+    # Purani/beeti hui candle skip karo - sirf woh candle jo pichle ~2 candle-lengths
+    # ke andar close hui ho, "naya" mana jayega. (Purana data se retroactive alert nahi.)
+    age_minutes = (now_utc - candle_time).total_seconds() / 60
+    tf_minutes = {"15m": 15, "30m": 30, "45m": 45, "1h": 60, "2h": 120}.get(timeframe, 60)
+    if age_minutes > tf_minutes * 2.5:
+        state[state_key] = ts  # mark done taake dobara check na ho, lekin alert nahi
         return
 
-    ts_pkt = df["timestamp"].iloc[i].tz_convert("Asia/Karachi").strftime("%Y-%m-%d %I:%M %p") + " (PKT)"
-    usd_vol = df["volume"].iloc[i] * df["close"].iloc[i]
-    usd_vol_str = f"${usd_vol/1e6:.2f}M" if usd_vol >= 1e6 else f"${usd_vol/1e3:.1f}K"
+    if state.get(state_key) == ts:
+        return
 
+    ts_pkt = (candle_time + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
     all_sent_ok = True
 
     if df["confirm_long"].iloc[i]:
-        score = int(df["score_long"].iloc[i])
         stars = int(df["stars_long"].iloc[i])
-        if score >= cfg["min_score_required"] and stars >= cfg["min_stars_to_show"]:
+        if stars >= cfg["min_stars_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "long")
             entry = df["close"].iloc[i]
-            star_str = "★" * stars + "☆" * (3 - stars)
-            body = (f"COINGLASS MASTER MODEL V5 - LONG SIGNAL\n"
-                    f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
-                    f"Mode: {cfg['signal_mode']}\n"
-                    f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\n"
-                    f"Inst Score: {star_str} ({score}/6 Score)\nVol USD: {usd_vol_str}")
-            print(f"V5 LONG {symbol} {timeframe} Stars={star_str} Score={score}/6")
-            ok = send_email(f"V5 LONG {symbol} ({timeframe}) {star_str} ({score}/6)", body)
+            star_str = "*" * stars + "-" * (3 - stars)
+            body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df['score_long'].iloc[i])}/5)")
+            ok = send_email(f"LONG {symbol} ({timeframe}) {star_str}", body)
             all_sent_ok = all_sent_ok and ok
 
     if df["confirm_short"].iloc[i]:
-        score = int(df["score_short"].iloc[i])
         stars = int(df["stars_short"].iloc[i])
-        if score >= cfg["min_score_required"] and stars >= cfg["min_stars_to_show"]:
+        if stars >= cfg["min_stars_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "short")
             entry = df["close"].iloc[i]
-            star_str = "★" * stars + "☆" * (3 - stars)
-            body = (f"COINGLASS MASTER MODEL V5 - SHORT SIGNAL\n"
-                    f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
-                    f"Mode: {cfg['signal_mode']}\n"
-                    f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\n"
-                    f"Inst Score: {star_str} ({score}/6 Score)\nVol USD: {usd_vol_str}")
-            print(f"V5 SHORT {symbol} {timeframe} Stars={star_str} Score={score}/6")
-            ok = send_email(f"V5 SHORT {symbol} ({timeframe}) {star_str} ({score}/6)", body)
+            star_str = "*" * stars + "-" * (3 - stars)
+            body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df['score_short'].iloc[i])}/5)")
+            ok = send_email(f"SHORT {symbol} ({timeframe}) {star_str}", body)
             all_sent_ok = all_sent_ok and ok
 
     if all_sent_ok:
-        state[state_key] = ts_str
+        state[state_key] = ts
 
+# ==========================================
+# 8. LIVE MODE
+# ==========================================
 def run_live(cfg):
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+
     ex_class = getattr(ccxt, cfg["exchange"])
     ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
 
-    print("Fetching top 300 coins for CoinGlass Master Model v5...")
+    print("Top coins fetch kar raha hoon (MEXC swap, no stable/leveraged)...")
     symbols = get_top_coins(ex, cfg)
-    print(f"Checking {len(symbols)} coins across 15m, 30m, 45m, 1h, 2h timeframes...")
+    print(f"{len(symbols)} coins mile. Timeframes: 15m,30m,45m,1h,2h. Mode: {cfg['signal_mode']}")
 
     state = load_state()
 
-    for symbol in symbols:
+    for idx, symbol in enumerate(symbols):
+        try:
+            df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
+        except Exception as e:
+            print(f"{symbol}: 15m fetch fail -> {e}")
+            continue
+
         for tf in cfg["native_timeframes"]:
             try:
-                df = fetch_ohlcv_df(ex, symbol, tf, cfg["candles_to_fetch"])
-                check_one(df, symbol, tf, cfg, state, f"{symbol}_{tf}")
+                df = df15 if tf == "15m" else fetch_ohlcv_df(ex, symbol, tf, cfg["candles_to_fetch"])
             except Exception as e:
+                print(f"{symbol} {tf}: fetch fail -> {e}")
                 continue
+            check_one(df, symbol, tf, cfg, state, f"{symbol}_{tf}", now_utc)
 
         if cfg["also_build_45m"]:
-            try:
-                df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
-                df45 = resample_to_45m(df15)
-                check_one(df45, symbol, "45m", cfg, state, f"{symbol}_45m")
-            except Exception as e:
-                pass
+            df45 = resample_to_45m(df15)
+            check_one(df45, symbol, "45m", cfg, state, f"{symbol}_45m", now_utc)
+
+        if (idx + 1) % 50 == 0:
+            print(f"  ...{idx + 1}/{len(symbols)} coins check ho chuke")
+            save_state(state)  # periodically save, taake beech mein rukne pe progress na khoye
 
     save_state(state)
-    print("Scan for CoinGlass Master Model v5 completed successfully.")
+    print("Sab coins check ho gaye.")
 
 if __name__ == "__main__":
-    run_live(CONFIG)
+    mode = sys.argv[1] if len(sys.argv) > 1 else "live"
+    if mode == "live":
+        run_live(CONFIG)
+    else:
+        print("Usage: python3 coinglass_v5.py live")
