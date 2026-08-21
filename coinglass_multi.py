@@ -58,7 +58,7 @@ CONFIG = {
     "atr_buffer_mult": 0.2,
 }
 
-GMAIL_ADDRESS = "arshadebadt@gmail.com"
+GMAIL_ADDRESS = "arshadebad5@gmail.com"
 GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
 
