@@ -1,10 +1,11 @@
 """
-CoinGlass Master Model v5 - Part 2 (Next 50 Dynamic Crypto Coins)
+CoinGlass Master Model v5 - Part 2 (Batch 4: Coins 151-200)
 =====================================================================
-- 50 Different High-Volume Altcoins (No duplicates from Part 1)
+- 50 Unique Crypto Pairs (MEXC USDT-M Perpetual Swaps)
 - Timeframes: 15m, 30m, 45m (resampled), 1h, 2h
 - Multi-Threaded Parallel Scanning Engine (~3-5 sec execution)
-- Separate State File: alert_state_v5_part2.json
+- Weighted Institutional Score System
+- Isolated State File: alert_state_v5_part2.json
 """
 
 import sys
@@ -52,7 +53,7 @@ CONFIG = {
     "atr_length": 14,
     "atr_buffer_mult": 0.2,
 
-    # NEXT 50 ALAG POPULAR CRYPTO PERPETUAL PAIRS (Set 2)
+    # NEXT 50 CRYPTO PERPETUAL PAIRS (Batch 4 / Part 2)
     "fixed_coin_list": [
         "FTM/USDT:USDT", "RUNE/USDT:USDT", "EOS/USDT:USDT", "XTZ/USDT:USDT",
         "THETA/USDT:USDT", "KSM/USDT:USDT", "NEO/USDT:USDT", "EGLD/USDT:USDT",
@@ -324,7 +325,7 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
                     sl, tp = compute_levels(df_calc, i, cfg, "long")
                     entry = df_calc["close"].iloc[i]
                     star_str = "*" * stars + "-" * (3 - stars)
-                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']} (v5 Batch 4)\nTime: {ts_pkt}\n"
                             f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df_calc['score_long'].iloc[i])}/5)")
                     alerts.append((state_key, ts_str, f"LONG {symbol} ({tf}) {star_str}", body))
 
@@ -334,7 +335,7 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
                     sl, tp = compute_levels(df_calc, i, cfg, "short")
                     entry = df_calc["close"].iloc[i]
                     star_str = "*" * stars + "-" * (3 - stars)
-                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']} (v5 Batch 4)\nTime: {ts_pkt}\n"
                             f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df_calc['score_short'].iloc[i])}/5)")
                     alerts.append((state_key, ts_str, f"SHORT {symbol} ({tf}) {star_str}", body))
 
@@ -365,7 +366,7 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
                             sl, tp = compute_levels(df45_calc, i, cfg, "long")
                             entry = df45_calc["close"].iloc[i]
                             star_str = "*" * stars + "-" * (3 - stars)
-                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']} (v5 Batch 4)\nTime: {ts_pkt}\n"
                                     f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df45_calc['score_long'].iloc[i])}/5)")
                             alerts.append((state_key, ts_str, f"LONG {symbol} (45m) {star_str}", body))
 
@@ -375,7 +376,7 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
                             sl, tp = compute_levels(df45_calc, i, cfg, "short")
                             entry = df45_calc["close"].iloc[i]
                             star_str = "*" * stars + "-" * (3 - stars)
-                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']} (v5 Batch 4)\nTime: {ts_pkt}\n"
                                     f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df45_calc['score_short'].iloc[i])}/5)")
                             alerts.append((state_key, ts_str, f"SHORT {symbol} (45m) {star_str}", body))
         except Exception:
@@ -395,7 +396,7 @@ def run_live(cfg):
     valid_symbols = [sym for sym in cfg["fixed_coin_list"] if sym in markets and markets[sym].get("active", True)]
     state = load_state()
 
-    print(f"🚀 Scanning Part 2 (50 Altcoins) across 15m, 30m, 45m, 1h, 2h...")
+    print(f"🚀 Scanning Part 2 / Batch 4 ({len(valid_symbols)} Active Pairs) across 15m, 30m, 45m, 1h, 2h...")
 
     pending_alerts = []
     with ThreadPoolExecutor(max_workers=cfg["max_threads"]) as executor:
@@ -410,7 +411,7 @@ def run_live(cfg):
             state[state_key] = ts_str
 
     save_state(state)
-    print("✅ Part 2 Scan Completed.")
+    print("✅ Part 2 / Batch 4 Scan Completed.")
 
 if __name__ == "__main__":
     run_live(CONFIG)
