@@ -1,18 +1,11 @@
 """
-CoinGlass Master Model v3 - Multi-Coin, Multi-Timeframe Version
+CoinGlass Master Model v3 - Top 50 USDT-M Perpetual Crypto Coins
 ===================================================================
-Top 30 USDT perpetual futures coins, 4 timeframes (15m/30m/45m/60m),
-sirf 2-star aur 3-star (Inst Score) signals pe alert bhejta hai.
-
-PythonAnywhere / GitHub Actions pe chalane se pehle:
-  pip install ccxt pandas numpy --break-system-packages
-
-Email setup (Gmail App Password zaroori hai):
-  neeche GMAIL_ADDRESS, GMAIL_APP_PASSWORD, TO_EMAIL fill karo.
-
-Command:
-  python3 coinglass_multi.py live
-  python3 coinglass_multi.py backtest BTC/USDT:USDT 15m   (single-coin test)
+- Top 50 Popular Crypto USDT-M Futures Pairs
+- Timeframes: 15m, 30m, 45m (resampled), 1h, 2h
+- Multi-Threaded Parallel Scanning for Instant Execution
+- Strictly Closed Candle Detection (iloc[-2])
+- Pakistan Standard Time (PKT)
 """
 
 import sys
@@ -20,21 +13,23 @@ import json
 import os
 import smtplib
 from email.mime.text import MIMEText
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 import numpy as np
 import ccxt
 
 # ==========================================
-# 1. CONFIG
+# 1. CONFIG & TOP 50 COINS
 # ==========================================
 CONFIG = {
     "exchange": "mexc",
-    "market_type": "swap",           # perpetual futures (USDT-M)
-    "native_timeframes": ["5m", "15m", "30m", "1h"],
-    "also_build_45m": True,          # 45m ko 15m data se resample karke banayega
+    "market_type": "swap",           # Perpetual futures (USDT-M)
+    "native_timeframes": ["15m", "30m", "1h", "2h"],
+    "also_build_45m": True,
     "candles_to_fetch": 300,
+    "max_threads": 10,               # Fast parallel scanning threads
 
-    # Fixed list - top 100 jani-pehchani crypto coins, koi stock ya anjaan coin nahi
+    # Strictly Top 50 Popular USDT-M Crypto Coins (No Stocks / Foreign Markets)
     "fixed_coin_list": [
         "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "BNB/USDT:USDT",
         "XRP/USDT:USDT", "DOGE/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT",
@@ -48,19 +43,7 @@ CONFIG = {
         "GALA/USDT:USDT", "ICP/USDT:USDT", "LDO/USDT:USDT", "IMX/USDT:USDT",
         "WIF/USDT:USDT", "FLOKI/USDT:USDT", "BONK/USDT:USDT", "JUP/USDT:USDT",
         "PENDLE/USDT:USDT", "PYTH/USDT:USDT", "ENA/USDT:USDT", "WLD/USDT:USDT",
-        "STRK/USDT:USDT", "ORDI/USDT:USDT", "RUNE/USDT:USDT", "GRT/USDT:USDT",
-        "THETA/USDT:USDT", "FTM/USDT:USDT", "EOS/USDT:USDT", "FLOW/USDT:USDT",
-        "AR/USDT:USDT", "MKR/USDT:USDT", "KAS/USDT:USDT", "NOT/USDT:USDT",
-        "CORE/USDT:USDT", "CFX/USDT:USDT", "MANA/USDT:USDT", "AXS/USDT:USDT",
-        "CHZ/USDT:USDT", "DYDX/USDT:USDT", "CRV/USDT:USDT", "COMP/USDT:USDT",
-        "SNX/USDT:USDT", "1INCH/USDT:USDT", "ENS/USDT:USDT", "AGIX/USDT:USDT",
-        "OCEAN/USDT:USDT", "ALT/USDT:USDT", "PORTAL/USDT:USDT", "MEME/USDT:USDT",
-        "SATS/USDT:USDT", "RATS/USDT:USDT", "BOME/USDT:USDT", "MEW/USDT:USDT",
-        "POPCAT/USDT:USDT", "BRETT/USDT:USDT", "NEO/USDT:USDT", "IOTA/USDT:USDT",
-        "XMR/USDT:USDT", "ZEC/USDT:USDT", "DASH/USDT:USDT", "EGLD/USDT:USDT",
-        "KAVA/USDT:USDT", "MINA/USDT:USDT", "ROSE/USDT:USDT", "WOO/USDT:USDT",
-        "JTO/USDT:USDT", "BLUR/USDT:USDT", "PIXEL/USDT:USDT", "MYRO/USDT:USDT",
-        "BEAM/USDT:USDT", "GMX/USDT:USDT", "ZRO/USDT:USDT", "IO/USDT:USDT",
+        "STRK/USDT:USDT", "ORDI/USDT:USDT"
     ],
 
     "use_cmf_filter": True,
@@ -83,38 +66,19 @@ CONFIG = {
     "atr_length": 14,
     "atr_buffer_mult": 0.2,
 
-    "min_star_score": 2,   # sirf 2 aur 3 star signals pe alert (0,1 ignore)
+    "min_star_score": 2,   # 2-Star (2/3) aur 3-Star (3/3) signals pe alert
 }
 
-# Email (Gmail App Password)
+# Email Setup
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
-GMAIL_APP_PASSWORD = "pgmq hgoz kkwc dcwg"
+GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
 
 STATE_FILE = "alert_state.json"
 
 # ==========================================
-# 2. TOP 30 COINS - FIXED LIST (sirf jani-pehchani coins)
+# 2. DATA RESAMPLING & INDICATORS
 # ==========================================
-def get_top_coins(ex, cfg):
-    markets = ex.load_markets()
-    valid = []
-    for sym in cfg["fixed_coin_list"]:
-        if sym in markets and markets[sym].get("active", True):
-            valid.append(sym)
-        else:
-            print(f"  (skip - {sym} is exchange pe available nahi)")
-    return valid
-
-# ==========================================
-# 3. DATA FETCH
-# ==========================================
-def fetch_ohlcv_df(ex, symbol, timeframe, limit):
-    raw = ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-    df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-    return df
-
 def resample_to_45m(df15):
     df = df15.set_index("timestamp")
     out = df.resample("45min").agg({
@@ -122,9 +86,6 @@ def resample_to_45m(df15):
     }).dropna().reset_index()
     return out
 
-# ==========================================
-# 4. INDICATORS (same logic as Pine)
-# ==========================================
 def ema(series, length):
     return series.ewm(span=length, adjust=False).mean()
 
@@ -234,7 +195,7 @@ def compute_levels(df, i, cfg, side):
     return sl, tp
 
 # ==========================================
-# 5. EMAIL ALERT
+# 3. EMAIL & STATE MANAGEMENT
 # ==========================================
 def send_email(subject, body):
     msg = MIMEText(body)
@@ -242,7 +203,7 @@ def send_email(subject, body):
     msg["From"] = GMAIL_ADDRESS
     msg["To"] = TO_EMAIL
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=5) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD.replace(" ", ""))
             server.sendmail(GMAIL_ADDRESS, TO_EMAIL, msg.as_string())
         print("  -> Email bhej diya:", subject)
@@ -251,9 +212,6 @@ def send_email(subject, body):
         print("  -> Email FAIL:", e)
         return False
 
-# ==========================================
-# 6. STATE (duplicate alerts rokne ke liye)
-# ==========================================
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
@@ -264,139 +222,128 @@ def load_state():
     return {}
 
 def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f)
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception as e:
+        print(f"State save fail: {e}")
 
 # ==========================================
-# 7. EK SYMBOL + TIMEFRAME CHECK KARO
+# 4. PARALLEL SYMBOL PROCESSOR
 # ==========================================
-def check_one(df, symbol, timeframe, cfg, state, state_key):
-    df = build_indicators(df, cfg)
-    i = len(df) - 2   # last CLOSED candle
-    if i < cfg["div_lookback"] + 5:
-        return
-
-    ts = str(df["timestamp"].iloc[i])
-    if state.get(state_key) == ts:
-        return  # already checked/alerted yeh candle
-
-    # Pakistan time mein dikhane ke liye (UTC + 5 ghante)
-    ts_pkt = (df["timestamp"].iloc[i] + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
-
-    all_sent_ok = True
-
-    if df["confirm_long"].iloc[i]:
-        score = int(df["inst_score_long"].iloc[i])
-        if score >= cfg["min_star_score"]:
-            sl, tp = compute_levels(df, i, cfg, "long")
-            entry = df["close"].iloc[i]
-            stars = "*" * score + "-" * (3 - score)
-            body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
-                    f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\nInst Score: {stars}")
-            print(f"LONG  {symbol} {timeframe} score={score}")
-            ok = send_email(f"LONG {symbol} ({timeframe}) {stars}", body)
-            all_sent_ok = all_sent_ok and ok
-
-    if df["confirm_short"].iloc[i]:
-        score = int(df["inst_score_short"].iloc[i])
-        if score >= cfg["min_star_score"]:
-            sl, tp = compute_levels(df, i, cfg, "short")
-            entry = df["close"].iloc[i]
-            stars = "*" * score + "-" * (3 - score)
-            body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nTime: {ts_pkt}\n"
-                    f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\nInst Score: {stars}")
-            print(f"SHORT {symbol} {timeframe} score={score}")
-            ok = send_email(f"SHORT {symbol} ({timeframe}) {stars}", body)
-            all_sent_ok = all_sent_ok and ok
-
-    # Sirf tabhi "done" mark karo jab email(s) safaltapoorvak bhej di gayi ho,
-    # warna agli run mein dobara try hoga.
-    if all_sent_ok:
-        state[state_key] = ts
-
-# ==========================================
-# 8. LIVE MODE - saare coins x saare timeframes
-# ==========================================
-def run_live(cfg):
-    ex_class = getattr(ccxt, cfg["exchange"])
-    ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
-
-    print("Top coins fetch kar raha hoon...")
-    symbols = get_top_coins(ex, cfg)
-    print(f"{len(symbols)} coins mile:")
-    for s in symbols:
-        print(f"  - {s}")
-    print("Timeframes: 5m, 15m, 30m, 45m, 60m")
-    print("Check shuru...")
-
-    state = load_state()
-
-    for symbol in symbols:
+def process_symbol_v3(symbol, ex, cfg, state):
+    alerts = []
+    
+    # Process native timeframes (15m, 30m, 1h, 2h)
+    for tf in cfg["native_timeframes"]:
         try:
-            df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
-        except Exception as e:
-            print(f"{symbol}: 15m data fail -> {e}")
+            raw = ex.fetch_ohlcv(symbol, timeframe=tf, limit=cfg["candles_to_fetch"])
+            df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+
+            i = len(df) - 2  # Strict closed candle
+            if i < cfg["div_lookback"] + 5:
+                continue
+
+            df_calc = build_indicators(df, cfg)
+            state_key = f"{symbol}_{tf}"
+            ts_str = str(df_calc["timestamp"].iloc[i])
+
+            if state.get(state_key) == ts_str:
+                continue
+
+            ts_pkt = df_calc["timestamp"].iloc[i].tz_convert("Asia/Karachi").strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
+
+            if df_calc["confirm_long"].iloc[i]:
+                score = int(df_calc["inst_score_long"].iloc[i])
+                if score >= cfg["min_star_score"]:
+                    sl, tp = compute_levels(df_calc, i, cfg, "long")
+                    entry = df_calc["close"].iloc[i]
+                    stars = "*" * score + "-" * (3 - score)
+                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nTime: {ts_pkt}\n"
+                            f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\nInst Score: {stars} ({score}/3)")
+                    alerts.append((state_key, ts_str, f"LONG {symbol} ({tf}) {stars}", body))
+
+            if df_calc["confirm_short"].iloc[i]:
+                score = int(df_calc["inst_score_short"].iloc[i])
+                if score >= cfg["min_star_score"]:
+                    sl, tp = compute_levels(df_calc, i, cfg, "short")
+                    entry = df_calc["close"].iloc[i]
+                    stars = "*" * score + "-" * (3 - score)
+                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nTime: {ts_pkt}\n"
+                            f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\nInst Score: {stars} ({score}/3)")
+                    alerts.append((state_key, ts_str, f"SHORT {symbol} ({tf}) {stars}", body))
+
+        except Exception:
             continue
 
-        for tf in cfg["native_timeframes"]:
-            try:
-                if tf == "15m":
-                    df = df15
-                else:
-                    df = fetch_ohlcv_df(ex, symbol, tf, cfg["candles_to_fetch"])
-            except Exception as e:
-                print(f"{symbol} {tf}: fetch fail -> {e}")
-                continue
-            key = f"{symbol}_{tf}"
-            check_one(df, symbol, tf, cfg, state, key)
-
-        if cfg["also_build_45m"]:
+    # Process resampled 45m timeframe
+    if cfg["also_build_45m"]:
+        try:
+            raw15 = ex.fetch_ohlcv(symbol, timeframe="15m", limit=cfg["candles_to_fetch"])
+            df15 = pd.DataFrame(raw15, columns=["timestamp", "open", "high", "low", "close", "volume"])
+            df15["timestamp"] = pd.to_datetime(df15["timestamp"], unit="ms", utc=True)
             df45 = resample_to_45m(df15)
-            key = f"{symbol}_45m"
-            check_one(df45, symbol, "45m", cfg, state, key)
+
+            i = len(df45) - 2
+            if i >= cfg["div_lookback"] + 5:
+                df45_calc = build_indicators(df45, cfg)
+                state_key = f"{symbol}_45m"
+                ts_str = str(df45_calc["timestamp"].iloc[i])
+
+                if state.get(state_key) != ts_str:
+                    ts_pkt = df45_calc["timestamp"].iloc[i].tz_convert("Asia/Karachi").strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
+
+                    if df45_calc["confirm_long"].iloc[i]:
+                        score = int(df45_calc["inst_score_long"].iloc[i])
+                        if score >= cfg["min_star_score"]:
+                            sl, tp = compute_levels(df45_calc, i, cfg, "long")
+                            entry = df45_calc["close"].iloc[i]
+                            stars = "*" * score + "-" * (3 - score)
+                            body = (f"Coin: {symbol}\nTimeframe: 45m\nTime: {ts_pkt}\n"
+                                    f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\nInst Score: {stars} ({score}/3)")
+                            alerts.append((state_key, ts_str, f"LONG {symbol} (45m) {stars}", body))
+
+                    if df45_calc["confirm_short"].iloc[i]:
+                        score = int(df45_calc["inst_score_short"].iloc[i])
+                        if score >= cfg["min_star_score"]:
+                            sl, tp = compute_levels(df45_calc, i, cfg, "short")
+                            entry = df45_calc["close"].iloc[i]
+                            stars = "*" * score + "-" * (3 - score)
+                            body = (f"Coin: {symbol}\nTimeframe: 45m\nTime: {ts_pkt}\n"
+                                    f"Entry~: {entry:.4f}\nSL: {sl:.4f}\nTP: {tp:.4f}\nInst Score: {stars} ({score}/3)")
+                            alerts.append((state_key, ts_str, f"SHORT {symbol} (45m) {stars}", body))
+        except Exception:
+            pass
+
+    return alerts
+
+# ==========================================
+# 5. LIVE EXECUTION ENGINE
+# ==========================================
+def run_live(cfg):
+    ex = ccxt.mexc({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
+    markets = ex.load_markets()
+
+    valid_symbols = [sym for sym in cfg["fixed_coin_list"] if sym in markets and markets[sym].get("active", True)]
+    state = load_state()
+
+    print(f"🚀 Scanning Top {len(valid_symbols)} Crypto Coins across 15m, 30m, 45m, 1h, 2h...")
+
+    pending_alerts = []
+    with ThreadPoolExecutor(max_workers=cfg["max_threads"]) as executor:
+        futures = [executor.submit(process_symbol_v3, sym, ex, cfg, state) for sym in valid_symbols]
+        for future in as_completed(futures):
+            res = future.result()
+            if res:
+                pending_alerts.extend(res)
+
+    for state_key, ts_str, subject, body in pending_alerts:
+        if send_email(subject, body):
+            state[state_key] = ts_str
 
     save_state(state)
-    print("Sab coins check ho gaye.")
+    print("✅ Fast Scan Completed.")
 
-# ==========================================
-# 9. BACKTEST MODE (single coin, quick check)
-# ==========================================
-def run_backtest(cfg, symbol, timeframe):
-    ex_class = getattr(ccxt, cfg["exchange"])
-    ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
-
-    if timeframe == "45m":
-        df15 = fetch_ohlcv_df(ex, symbol, "15m", cfg["candles_to_fetch"])
-        df = resample_to_45m(df15)
-    else:
-        df = fetch_ohlcv_df(ex, symbol, timeframe, cfg["candles_to_fetch"])
-
-    df = build_indicators(df, cfg)
-    signals = []
-    for i in range(len(df)):
-        if df["confirm_long"].iloc[i]:
-            score = int(df["inst_score_long"].iloc[i])
-            if score >= cfg["min_star_score"]:
-                signals.append((df["timestamp"].iloc[i], "LONG", score))
-        if df["confirm_short"].iloc[i]:
-            score = int(df["inst_score_short"].iloc[i])
-            if score >= cfg["min_star_score"]:
-                signals.append((df["timestamp"].iloc[i], "SHORT", score))
-
-    print(f"\n{symbol} ({timeframe}) - {len(signals)} qualifying signals (score >= {cfg['min_star_score']}):")
-    for ts, side, score in signals:
-        print(f"  {ts}  {side}  score={score}")
-
-# ==========================================
-# 10. ENTRY POINT
-# ==========================================
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "live"
-    if mode == "live":
-        run_live(CONFIG)
-    elif mode == "backtest":
-        sym = sys.argv[2] if len(sys.argv) > 2 else "BTC/USDT:USDT"
-        tf = sys.argv[3] if len(sys.argv) > 3 else "15m"
-        run_backtest(CONFIG, sym, tf)
-    else:
-        print("Usage: python3 coinglass_multi.py [live|backtest SYMBOL TIMEFRAME]")
+    run_live(CONFIG)
