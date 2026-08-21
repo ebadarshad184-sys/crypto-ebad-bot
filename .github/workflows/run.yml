@@ -1,4 +1,4 @@
-Name: Trading Signal Check
+name: Trading Signal Check
 
 on:
   schedule:
@@ -18,7 +18,7 @@ jobs:
           python-version: "3.11"
 
       - name: Libraries install karo
-        run: pip install ccxt pandas requests numpy
+        run: pip install ccxt pandas requests numpy scipy ta
 
       - name: All Strategies Parallel Run Karo
         run: |
