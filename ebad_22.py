@@ -1,10 +1,11 @@
 """
-CoinGlass Master Model v3 - Fast Multi-Threaded Edition (Batch 2: Coins 51-100)
-=====================================================================
-- Next 50 Active Crypto Pairs (MEXC USDT-M Perpetual Swaps)
-- Timeframes: 15m, 30m, 45m (Resampled), 1h, 2h
-- 10 Parallel Threads Scanning Engine (~3-5 Seconds Execution)
-- Fresh Candle Verification & Instant Email Notification
+CoinGlass Master Model v5 - Weighted Institutional Score (Multi-Threaded Fast Edition)
+========================================================================================
+- Batch 3: Top 101–150 Popular USDT-M Futures Crypto Coins
+- Timeframes: 15m, 30m, 45m (resampled), 1h, 2h
+- Multi-Threaded Parallel Execution (Scan completes in ~3-5 seconds)
+- Weighted Institutional Score (Mode-based logic)
+- Strict Fresh Candle Alerting (Pakistan Time PKT)
 """
 
 import sys
@@ -19,7 +20,7 @@ import numpy as np
 import ccxt
 
 # ==========================================
-# 1. CONFIG
+# 1. CONFIGURATION
 # ==========================================
 CONFIG = {
     "exchange": "mexc",
@@ -27,7 +28,10 @@ CONFIG = {
     "native_timeframes": ["15m", "30m", "1h", "2h"],
     "also_build_45m": True,
     "candles_to_fetch": 120,
-    "max_threads": 10,
+    "max_threads": 10,               # 10 Parallel Threads for fast scanning
+
+    "signal_mode": "Balanced",        # "Conservative" / "Balanced" / "More Signals"
+    "min_stars_to_show": 2,           # Minimum 2-Star (2/3) or 3-Star (3/3) signals
 
     "use_cmf_filter": True,
     "use_div_filter": True,
@@ -43,32 +47,34 @@ CONFIG = {
     "ema_slow_len": 20,
 
     "vol_ema_length": 20,
-    "min_rel_vol": 1.1,
+    "min_rel_vol_input": 1.1,
     "whale_rel_vol": 2.0,
 
     "atr_length": 14,
     "atr_buffer_mult": 0.2,
 
-    # Next 50 Crypto Perpetual Pairs (51 to 100)
+    # Batch 3: Coins 101 to 150
     "fixed_coin_list": [
-        "1000SATS/USDT:USDT", "AXS/USDT:USDT", "SAND/USDT:USDT", "MANA/USDT:USDT", "CHZ/USDT:USDT", 
-        "KAS/USDT:USDT", "NOT/USDT:USDT", "BRETT/USDT:USDT", "POPCAT/USDT:USDT", "WLD/USDT:USDT", 
-        "BEAM/USDT:USDT", "NEO/USDT:USDT", "XTZ/USDT:USDT", "KAVA/USDT:USDT", "MINA/USDT:USDT", 
-        "ASTR/USDT:USDT", "MANTA/USDT:USDT", "STRK/USDT:USDT", "BLUR/USDT:USDT", "ZEC/USDT:USDT", 
-        "DASH/USDT:USDT", "XMR/USDT:USDT", "IOTA/USDT:USDT", "KLAY/USDT:USDT", "COMP/USDT:USDT", 
-        "SNX/USDT:USDT", "CRV/USDT:USDT", "LDO/USDT:USDT", "CVX/USDT:USDT", "FXS/USDT:USDT", 
-        "RPL/USDT:USDT", "PENDLE/USDT:USDT", "MAV/USDT:USDT", "RDNT/USDT:USDT", "EDU/USDT:USDT", 
-        "ID/USDT:USDT", "HOOK/USDT:USDT", "ARKM/USDT:USDT", "CYBER/USDT:USDT", "MAGIC/USDT:USDT", 
-        "GMX/USDT:USDT", "SSV/USDT:USDT", "AGLD/USDT:USDT", "TRB/USDT:USDT", "GAS/USDT:USDT", 
-        "LOOM/USDT:USDT", "BIGTIME/USDT:USDT", "TOKEN/USDT:USDT", "MEME/USDT:USDT", "MYRO/USDT:USDT"
+        "1000SATS/USDT:USDT", "KAS/USDT:USDT", "NOT/USDT:USDT", "BRETT/USDT:USDT", "POPCAT/USDT:USDT",
+        "BEAM/USDT:USDT", "XTZ/USDT:USDT", "MINA/USDT:USDT", "ASTR/USDT:USDT", "MANTA/USDT:USDT",
+        "BLUR/USDT:USDT", "KLAY/USDT:USDT", "CVX/USDT:USDT", "FXS/USDT:USDT", "RPL/USDT:USDT",
+        "MAV/USDT:USDT", "RDNT/USDT:USDT", "EDU/USDT:USDT", "ID/USDT:USDT", "HOOK/USDT:USDT",
+        "ARKM/USDT:USDT", "CYBER/USDT:USDT", "MAGIC/USDT:USDT", "GMX/USDT:USDT", "SSV/USDT:USDT",
+        "AGLD/USDT:USDT", "TRB/USDT:USDT", "GAS/USDT:USDT", "LOOM/USDT:USDT", "BIGTIME/USDT:USDT",
+        "TOKEN/USDT:USDT", "MEME/USDT:USDT", "MYRO/USDT:USDT", "BOME/USDT:USDT", "MEW/USDT:USDT",
+        "TURBO/USDT:USDT", "1000CAT/USDT:USDT", "NEIRO/USDT:USDT", "BABYDOGE/USDT:USDT", "IO/USDT:USDT",
+        "ZK/USDT:USDT", "LISTA/USDT:USDT", "ZRO/USDT:USDT", "RENDER/USDT:USDT", "RARE/USDT:USDT",
+        "SYS/USDT:USDT", "SYN/USDT:USDT", "VOXEL/USDT:USDT", "DOGS/USDT:USDT", "MBOX/USDT:USDT"
     ],
 }
 
+# Email Credentials
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
 GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
 
-STATE_FILE = "alert_state_v3_batch2.json"
+# UNIQUE STATE FILE FOR V5 BATCH 3
+STATE_FILE = "alert_state_v5_b3.json"
 
 # ==========================================
 # 2. INDICATORS & RESAMPLING
@@ -93,8 +99,21 @@ def wilder_atr(df, length):
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     return tr.ewm(alpha=1 / length, adjust=False).mean()
 
-def build_indicators_v3(df, cfg):
+def build_indicators(df, cfg):
     df = df.copy()
+
+    mode = cfg["signal_mode"]
+    mode_min_rel_vol = cfg["min_rel_vol_input"]
+    if mode == "Conservative":
+        mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.30)
+    elif mode == "Balanced":
+        mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.10)
+    elif mode == "More Signals":
+        mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.00)
+
+    strict_breakout = (mode == "Conservative")
+    strict_confirmation = (mode == "Conservative")
+    flexible_flow = (mode != "Conservative")
 
     df["ema_fast"] = ema(df["close"], cfg["ema_fast_len"])
     df["ema_slow"] = ema(df["close"], cfg["ema_slow_len"])
@@ -103,7 +122,7 @@ def build_indicators_v3(df, cfg):
 
     df["vol_ema"] = ema(df["volume"], cfg["vol_ema_length"])
     df["rel_vol"] = np.where(df["vol_ema"] > 0, df["volume"] / df["vol_ema"], 1.0)
-    df["is_high_vol"] = df["rel_vol"] >= cfg["min_rel_vol"]
+    df["is_high_vol"] = df["rel_vol"] >= mode_min_rel_vol
     df["is_whale_vol"] = df["rel_vol"] >= cfg["whale_rel_vol"]
 
     vol_break = df["is_whale_vol"] if cfg["require_whale_vol"] else df["is_high_vol"]
@@ -117,8 +136,12 @@ def build_indicators_v3(df, cfg):
     df["is_distrib"] = df["cmf"] < 0
 
     if cfg["use_cmf_filter"]:
-        df["pass_cmf_long"] = df["is_accum"]
-        df["pass_cmf_short"] = df["is_distrib"]
+        if flexible_flow:
+            df["pass_cmf_long"] = df["is_accum"] | df["is_high_vol"]
+            df["pass_cmf_short"] = df["is_distrib"] | df["is_high_vol"]
+        else:
+            df["pass_cmf_long"] = df["is_accum"]
+            df["pass_cmf_short"] = df["is_distrib"]
     else:
         df["pass_cmf_long"] = True
         df["pass_cmf_short"] = True
@@ -145,14 +168,22 @@ def build_indicators_v3(df, cfg):
 
     prev_high = df["high"].shift(1)
     prev_low = df["low"].shift(1)
+    prev_close = df["close"].shift(1)
+
+    if strict_breakout:
+        break_long_cond = df["close"] > prev_high
+        break_short_cond = df["close"] < prev_low
+    else:
+        break_long_cond = df["close"] > prev_close
+        break_short_cond = df["close"] < prev_close
 
     df["break_both_ema_long"] = (
         df["is_bull"] & (df["open"] < df["ema_slow"]) & (df["close"] > df["ema_fast"])
-        & (df["close"] > df["ema_slow"]) & (df["close"] > prev_high)
+        & (df["close"] > df["ema_slow"]) & break_long_cond
     )
     df["break_both_ema_short"] = (
         df["is_bear"] & (df["open"] > df["ema_slow"]) & (df["close"] < df["ema_fast"])
-        & (df["close"] < df["ema_slow"]) & (df["close"] < prev_low)
+        & (df["close"] < df["ema_slow"]) & break_short_cond
     )
 
     df["setup_long"] = (
@@ -167,11 +198,37 @@ def build_indicators_v3(df, cfg):
     if cfg["use_confirmation"]:
         prev_setup_long = df["setup_long"].shift(1).fillna(False)
         prev_setup_short = df["setup_short"].shift(1).fillna(False)
-        df["confirm_long"] = prev_setup_long & (df["close"] > prev_high) & df["is_bull"]
-        df["confirm_short"] = prev_setup_short & (df["close"] < prev_low) & df["is_bear"]
+        if strict_confirmation:
+            df["confirm_long"] = prev_setup_long & (df["close"] > prev_high) & df["is_bull"]
+            df["confirm_short"] = prev_setup_short & (df["close"] < prev_low) & df["is_bear"]
+        else:
+            df["confirm_long"] = prev_setup_long & (df["close"] > prev_close) & df["is_bull"]
+            df["confirm_short"] = prev_setup_short & (df["close"] < prev_close) & df["is_bear"]
     else:
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
+
+    score_long = (
+        df["is_accum"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
+        + df["ema_align_long"].astype(int) + (~df["bearish_div"]).astype(int)
+    )
+    score_short = (
+        df["is_distrib"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
+        + df["ema_align_short"].astype(int) + (~df["bullish_div"]).astype(int)
+    )
+    df["score_long"] = score_long
+    df["score_short"] = score_short
+
+    def star_rating(score):
+        if score >= 5:
+            return 3
+        elif score >= 3:
+            return 2
+        else:
+            return 1
+
+    df["stars_long"] = df["score_long"].apply(star_rating)
+    df["stars_short"] = df["score_short"].apply(star_rating)
 
     return df
 
@@ -229,9 +286,9 @@ def save_state(state):
         print(f"State save fail: {e}")
 
 # ==========================================
-# 4. PARALLEL PROCESSOR
+# 4. PARALLEL SYMBOL PROCESSOR
 # ==========================================
-def process_symbol_v3(symbol, ex, cfg, state, now_utc):
+def process_symbol_v5(symbol, ex, cfg, state, now_utc):
     alerts = []
 
     for tf in cfg["native_timeframes"]:
@@ -240,7 +297,7 @@ def process_symbol_v3(symbol, ex, cfg, state, now_utc):
             df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
 
-            i = len(df) - 2  # Closed candle
+            i = len(df) - 2
             if i < cfg["div_lookback"] + 5:
                 continue
 
@@ -257,22 +314,28 @@ def process_symbol_v3(symbol, ex, cfg, state, now_utc):
             if state.get(state_key) == ts_str:
                 continue
 
-            df_calc = build_indicators_v3(df, cfg)
+            df_calc = build_indicators(df, cfg)
             ts_pkt = candle_time.tz_convert("Asia/Karachi").strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
 
             if df_calc["confirm_long"].iloc[i]:
-                sl, tp = compute_levels(df_calc, i, cfg, "long")
-                entry = df_calc["close"].iloc[i]
-                body = (f"Coin: {symbol}\nTimeframe: {tf}\nVersion: v3 Model (Batch 2)\nTime: {ts_pkt}\n"
-                        f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}")
-                alerts.append((state_key, ts_str, f"LONG {symbol} ({tf}) - v3 Signal", body))
+                stars = int(df_calc["stars_long"].iloc[i])
+                if stars >= cfg["min_stars_to_show"]:
+                    sl, tp = compute_levels(df_calc, i, cfg, "long")
+                    entry = df_calc["close"].iloc[i]
+                    star_str = "*" * stars + "-" * (3 - stars)
+                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']} (v5 Batch 3)\nTime: {ts_pkt}\n"
+                            f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df_calc['score_long'].iloc[i])}/5)")
+                    alerts.append((state_key, ts_str, f"LONG {symbol} ({tf}) {star_str}", body))
 
             if df_calc["confirm_short"].iloc[i]:
-                sl, tp = compute_levels(df_calc, i, cfg, "short")
-                entry = df_calc["close"].iloc[i]
-                body = (f"Coin: {symbol}\nTimeframe: {tf}\nVersion: v3 Model (Batch 2)\nTime: {ts_pkt}\n"
-                        f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}")
-                alerts.append((state_key, ts_str, f"SHORT {symbol} ({tf}) - v3 Signal", body))
+                stars = int(df_calc["stars_short"].iloc[i])
+                if stars >= cfg["min_stars_to_show"]:
+                    sl, tp = compute_levels(df_calc, i, cfg, "short")
+                    entry = df_calc["close"].iloc[i]
+                    star_str = "*" * stars + "-" * (3 - stars)
+                    body = (f"Coin: {symbol}\nTimeframe: {tf}\nMode: {cfg['signal_mode']} (v5 Batch 3)\nTime: {ts_pkt}\n"
+                            f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df_calc['score_short'].iloc[i])}/5)")
+                    alerts.append((state_key, ts_str, f"SHORT {symbol} ({tf}) {star_str}", body))
 
         except Exception:
             continue
@@ -292,29 +355,35 @@ def process_symbol_v3(symbol, ex, cfg, state, now_utc):
 
                 age_minutes = (now_utc - candle_time).total_seconds() / 60
                 if age_minutes <= 45 * 2.5 and state.get(state_key) != ts_str:
-                    df45_calc = build_indicators_v3(df45, cfg)
+                    df45_calc = build_indicators(df45, cfg)
                     ts_pkt = candle_time.tz_convert("Asia/Karachi").strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
 
                     if df45_calc["confirm_long"].iloc[i]:
-                        sl, tp = compute_levels(df45_calc, i, cfg, "long")
-                        entry = df45_calc["close"].iloc[i]
-                        body = (f"Coin: {symbol}\nTimeframe: 45m\nVersion: v3 Model (Batch 2)\nTime: {ts_pkt}\n"
-                                f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}")
-                        alerts.append((state_key, ts_str, f"LONG {symbol} (45m) - v3 Signal", body))
+                        stars = int(df45_calc["stars_long"].iloc[i])
+                        if stars >= cfg["min_stars_to_show"]:
+                            sl, tp = compute_levels(df45_calc, i, cfg, "long")
+                            entry = df45_calc["close"].iloc[i]
+                            star_str = "*" * stars + "-" * (3 - stars)
+                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']} (v5 Batch 3)\nTime: {ts_pkt}\n"
+                                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df45_calc['score_long'].iloc[i])}/5)")
+                            alerts.append((state_key, ts_str, f"LONG {symbol} (45m) {star_str}", body))
 
                     if df45_calc["confirm_short"].iloc[i]:
-                        sl, tp = compute_levels(df45_calc, i, cfg, "short")
-                        entry = df45_calc["close"].iloc[i]
-                        body = (f"Coin: {symbol}\nTimeframe: 45m\nVersion: v3 Model (Batch 2)\nTime: {ts_pkt}\n"
-                                f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}")
-                        alerts.append((state_key, ts_str, f"SHORT {symbol} (45m) - v3 Signal", body))
+                        stars = int(df45_calc["stars_short"].iloc[i])
+                        if stars >= cfg["min_stars_to_show"]:
+                            sl, tp = compute_levels(df45_calc, i, cfg, "short")
+                            entry = df45_calc["close"].iloc[i]
+                            star_str = "*" * stars + "-" * (3 - stars)
+                            body = (f"Coin: {symbol}\nTimeframe: 45m\nMode: {cfg['signal_mode']} (v5 Batch 3)\nTime: {ts_pkt}\n"
+                                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df45_calc['score_short'].iloc[i])}/5)")
+                            alerts.append((state_key, ts_str, f"SHORT {symbol} (45m) {star_str}", body))
         except Exception:
             pass
 
     return alerts
 
 # ==========================================
-# 5. EXECUTION ENGINE
+# 5. LIVE EXECUTION ENGINE
 # ==========================================
 def run_live(cfg):
     now_utc = datetime.now(timezone.utc)
@@ -325,11 +394,11 @@ def run_live(cfg):
     valid_symbols = [sym for sym in cfg["fixed_coin_list"] if sym in markets and markets[sym].get("active", True)]
     state = load_state()
 
-    print(f"🚀 Scanning Coins 51-100 ({len(valid_symbols)} Active Pairs) - v3 Model...")
+    print(f"🚀 Scanning Coins 101-150 ({len(valid_symbols)} Active Pairs) - v5 Model...")
 
     pending_alerts = []
     with ThreadPoolExecutor(max_workers=cfg["max_threads"]) as executor:
-        futures = [executor.submit(process_symbol_v3, sym, ex, cfg, state, now_utc) for sym in valid_symbols]
+        futures = [executor.submit(process_symbol_v5, sym, ex, cfg, state, now_utc) for sym in valid_symbols]
         for future in as_completed(futures):
             res = future.result()
             if res:
@@ -340,7 +409,11 @@ def run_live(cfg):
             state[state_key] = ts_str
 
     save_state(state)
-    print("✅ v3 Batch 2 Scan Completed.")
+    print("✅ v5 Batch 3 Scan Completed.")
 
 if __name__ == "__main__":
     run_live(CONFIG)
+
+ 
+
+
