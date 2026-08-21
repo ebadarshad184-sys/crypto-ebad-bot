@@ -22,7 +22,7 @@ import ccxt
 # 1. CONFIG & PARAMETERS
 # ==========================================
 CONFIG = {
-    "exchange": "binance",            # Switched to Binance
+    "exchange": "mexc",            # Switched to Binance
     "market_type": "swap",            # USDT-M Futures
     "native_timeframes": ["15m", "30m", "1h", "2h"],
     "also_build_45m": True,
