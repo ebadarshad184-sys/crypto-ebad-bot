@@ -1,11 +1,10 @@
 """
-CoinGlass Master Model v5 - Weighted Institutional Score (Multi-Threaded Fast Edition)
-========================================================================================
-- Top 50 Popular USDT-M Futures Crypto Coins
+CoinGlass Master Model v5 - Part 2 (Next 50 Dynamic Crypto Coins)
+=====================================================================
+- 50 Different High-Volume Altcoins (No duplicates from Part 1)
 - Timeframes: 15m, 30m, 45m (resampled), 1h, 2h
-- Multi-Threaded Parallel Execution (Scan completes in ~3-5 seconds)
-- Weighted Institutional Score (Mode-based logic)
-- Strict Fresh Candle Alerting (Pakistan Time PKT)
+- Multi-Threaded Parallel Scanning Engine (~3-5 sec execution)
+- Separate State File: alert_state_v5_part2.json
 """
 
 import sys
@@ -20,7 +19,7 @@ import numpy as np
 import ccxt
 
 # ==========================================
-# 1. CONFIGURATION
+# 1. CONFIGURATION (PART 2 COINS)
 # ==========================================
 CONFIG = {
     "exchange": "mexc",
@@ -28,7 +27,7 @@ CONFIG = {
     "native_timeframes": ["15m", "30m", "1h", "2h"],
     "also_build_45m": True,
     "candles_to_fetch": 120,
-    "max_threads": 10,               # 10 Parallel Threads for fast scanning
+    "max_threads": 10,
 
     "signal_mode": "Balanced",        # "Conservative" / "Balanced" / "More Signals"
     "min_stars_to_show": 2,           # Minimum 2-Star (2/3) or 3-Star (3/3) signals
@@ -53,21 +52,21 @@ CONFIG = {
     "atr_length": 14,
     "atr_buffer_mult": 0.2,
 
-    # Top 50 High-Volume Crypto Perpetual Pairs Only
+    # NEXT 50 ALAG POPULAR CRYPTO PERPETUAL PAIRS (Set 2)
     "fixed_coin_list": [
-        "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "BNB/USDT:USDT",
-        "XRP/USDT:USDT", "DOGE/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT",
-        "TRX/USDT:USDT", "LINK/USDT:USDT", "DOT/USDT:USDT", "MATIC/USDT:USDT",
-        "LTC/USDT:USDT", "SHIB/USDT:USDT", "BCH/USDT:USDT", "UNI/USDT:USDT",
-        "ATOM/USDT:USDT", "ETC/USDT:USDT", "NEAR/USDT:USDT", "APT/USDT:USDT",
-        "FIL/USDT:USDT", "ARB/USDT:USDT", "OP/USDT:USDT", "SUI/USDT:USDT",
-        "INJ/USDT:USDT", "TON/USDT:USDT", "SAND/USDT:USDT", "AAVE/USDT:USDT",
-        "XLM/USDT:USDT", "ALGO/USDT:USDT", "PEPE/USDT:USDT", "FET/USDT:USDT",
-        "RNDR/USDT:USDT", "TIA/USDT:USDT", "SEI/USDT:USDT", "STX/USDT:USDT",
-        "GALA/USDT:USDT", "ICP/USDT:USDT", "LDO/USDT:USDT", "IMX/USDT:USDT",
-        "WIF/USDT:USDT", "FLOKI/USDT:USDT", "BONK/USDT:USDT", "JUP/USDT:USDT",
-        "PENDLE/USDT:USDT", "PYTH/USDT:USDT", "ENA/USDT:USDT", "WLD/USDT:USDT",
-        "STRK/USDT:USDT", "ORDI/USDT:USDT"
+        "FTM/USDT:USDT", "RUNE/USDT:USDT", "EOS/USDT:USDT", "XTZ/USDT:USDT",
+        "THETA/USDT:USDT", "KSM/USDT:USDT", "NEO/USDT:USDT", "EGLD/USDT:USDT",
+        "FLOW/USDT:USDT", "ASTR/USDT:USDT", "MINA/USDT:USDT", "IOTA/USDT:USDT",
+        "ZEC/USDT:USDT", "DASH/USDT:USDT", "MANA/USDT:USDT", "CHZ/USDT:USDT",
+        "AXS/USDT:USDT", "CRV/USDT:USDT", "SNX/USDT:USDT", "COMP/USDT:USDT",
+        "MKR/USDT:USDT", "DYDX/USDT:USDT", "1INCH/USDT:USDT", "ENS/USDT:USDT",
+        "LDO/USDT:USDT", "FXS/USDT:USDT", "WOO/USDT:USDT", "KAVA/USDT:USDT",
+        "AGIX/USDT:USDT", "OCEAN/USDT:USDT", "RLC/USDT:USDT", "ALT/USDT:USDT",
+        "MANTA/USDT:USDT", "RON/USDT:USDT", "PIXEL/USDT:USDT", "PORTAL/USDT:USDT",
+        "AEVO/USDT:USDT", "ETHFI/USDT:USDT", "BB/USDT:USDT", "NOT/USDT:USDT",
+        "IO/USDT:USDT", "ZK/USDT:USDT", "ZRO/USDT:USDT", "RENDER/USDT:USDT",
+        "SXR/USDT:USDT", "1000SATS/USDT:USDT", "MEME/USDT:USDT", "ORBS/USDT:USDT",
+        "GMX/USDT:USDT", "PENDLE/USDT:USDT"
     ],
 }
 
@@ -76,7 +75,7 @@ GMAIL_ADDRESS = "arshadebad5@gmail.com"
 GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
 
-STATE_FILE = "alert_state_v5.json"
+STATE_FILE = "alert_state_v5_part2.json"
 
 # ==========================================
 # 2. INDICATORS & RESAMPLING
@@ -210,7 +209,6 @@ def build_indicators(df, cfg):
         df["confirm_long"] = df["setup_long"]
         df["confirm_short"] = df["setup_short"]
 
-    # Weighted Institutional Score Evaluation
     score_long = (
         df["is_accum"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
         + df["ema_align_long"].astype(int) + (~df["bearish_div"]).astype(int)
@@ -294,14 +292,13 @@ def save_state(state):
 def process_symbol_v5(symbol, ex, cfg, state, now_utc):
     alerts = []
 
-    # Process Native Timeframes (15m, 30m, 1h, 2h)
     for tf in cfg["native_timeframes"]:
         try:
             raw = ex.fetch_ohlcv(symbol, timeframe=tf, limit=cfg["candles_to_fetch"])
             df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
 
-            i = len(df) - 2  # Strict Closed Candle
+            i = len(df) - 2
             if i < cfg["div_lookback"] + 5:
                 continue
 
@@ -309,7 +306,6 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
             state_key = f"{symbol}_{tf}"
             ts_str = str(candle_time)
 
-            # Skip outdated candles
             age_minutes = (now_utc - candle_time).total_seconds() / 60
             tf_minutes = {"15m": 15, "30m": 30, "45m": 45, "1h": 60, "2h": 120}.get(tf, 60)
             if age_minutes > tf_minutes * 2.5:
@@ -345,7 +341,6 @@ def process_symbol_v5(symbol, ex, cfg, state, now_utc):
         except Exception:
             continue
 
-    # Process Resampled 45m Timeframe
     if cfg["also_build_45m"]:
         try:
             raw15 = ex.fetch_ohlcv(symbol, timeframe="15m", limit=cfg["candles_to_fetch"])
@@ -400,7 +395,7 @@ def run_live(cfg):
     valid_symbols = [sym for sym in cfg["fixed_coin_list"] if sym in markets and markets[sym].get("active", True)]
     state = load_state()
 
-    print(f"🚀 Scanning Top {len(valid_symbols)} Crypto Coins across 15m, 30m, 45m, 1h, 2h (v5 Model)...")
+    print(f"🚀 Scanning Part 2 (50 Altcoins) across 15m, 30m, 45m, 1h, 2h...")
 
     pending_alerts = []
     with ThreadPoolExecutor(max_workers=cfg["max_threads"]) as executor:
@@ -415,7 +410,7 @@ def run_live(cfg):
             state[state_key] = ts_str
 
     save_state(state)
-    print("✅ Fast Scan Completed.")
+    print("✅ Part 2 Scan Completed.")
 
 if __name__ == "__main__":
     run_live(CONFIG)
