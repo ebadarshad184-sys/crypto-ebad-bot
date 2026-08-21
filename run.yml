@@ -1,4 +1,4 @@
-name: Trading Signal Check
+Name: Trading Signal Check
 
 on:
   schedule:
@@ -26,10 +26,11 @@ jobs:
       - name: Multi-Timeframe strategy chalao
         run: python coinglass_multi.py live
 
-      - name: Doosri strategy chalao
+      - name: Teesri strategy chalao
         run: python ebad_crypto_1.py live
-           - name: 4  strategy chalao
-        run: ebad_22.py
+
+      - name: Chauthi strategy chalao
+        run: python ebad_22.py live
 
       - name: Alert states auto-save karo
         uses: stefanzweifel/git-auto-commit-action@v5
