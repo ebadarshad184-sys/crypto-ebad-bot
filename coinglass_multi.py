@@ -140,6 +140,8 @@ def lookup_htf_trend(df_htf, candle_time):
     uska trend dhoondta hai."""
     if df_htf is None or len(df_htf) == 0:
         return None
+    if "is_htf_bullish" not in df_htf.columns:
+        return None
     matching = df_htf[df_htf["timestamp"] <= candle_time]
     if len(matching) == 0:
         return None
