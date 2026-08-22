@@ -41,7 +41,8 @@ CONFIG = {
     "candles_to_fetch_15m": 500,      # 120m resample ke liye kaafi 15m bars chahiye
 
     "signal_mode": "Balanced",        # "Conservative" / "Balanced" / "More Signals"
-    "min_stars_to_show": 2,
+    "min_score_to_show": 4,           # score /6 - sirf 4,5,6 wale pe alert (3 ya kam ignore)
+    "htf_multiplier": 4,              # HTF = current resample x 4 (extra API call nahi lagta)
 
     "use_cmf_filter": True,
     "use_div_filter": True,
@@ -121,6 +122,28 @@ def resample_df(df15, target_minutes):
     return out
 
 TF_MINUTES = {"15m": 15, "30m": 30, "45m": 45, "60m": 60, "120m": 120}
+
+def compute_htf_trend(df15, base_minutes, multiplier, ema_slow_len):
+    """HTF trend nikalta hai bina koi extra API call kiye - already fetched
+    15m data se hi ek bada timeframe resample kar leta hai."""
+    htf_minutes = base_minutes * multiplier
+    df_htf = resample_df(df15, htf_minutes)
+    if len(df_htf) < ema_slow_len + 2:
+        return df_htf, None
+    df_htf = df_htf.copy()
+    df_htf["htf_ema"] = ema(df_htf["close"], ema_slow_len)
+    df_htf["is_htf_bullish"] = df_htf["close"] >= df_htf["htf_ema"]
+    return df_htf, htf_minutes
+
+def lookup_htf_trend(df_htf, candle_time):
+    """Signal candle ke waqt jo bhi HTF bar us se pehle/us waqt close hui thi,
+    uska trend dhoondta hai."""
+    if df_htf is None or len(df_htf) == 0:
+        return None
+    matching = df_htf[df_htf["timestamp"] <= candle_time]
+    if len(matching) == 0:
+        return None
+    return bool(matching["is_htf_bullish"].iloc[-1])
 
 # ==========================================
 # 4. INDICATORS (Pine v5 mode logic)
@@ -327,7 +350,7 @@ def save_state(state):
 # ==========================================
 # 7. CHECK ONE SYMBOL+TIMEFRAME
 # ==========================================
-def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc):
+def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, base_minutes=None):
     df = build_indicators(df, cfg)
     i = len(df) - 2   # last CLOSED candle
     if i < cfg["div_lookback"] + 5:
@@ -346,30 +369,39 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc):
     if state.get(state_key) == ts:
         return
 
-    # EXACT candle close time, Pakistan time mein (UTC+5)
+    # HTF trend nikalo (extra API call nahi, already fetched data se)
+    htf_bullish = None
+    if df15 is not None and base_minutes is not None:
+        df_htf, _ = compute_htf_trend(df15, base_minutes, cfg["htf_multiplier"], cfg["ema_slow_len"])
+        htf_bullish = lookup_htf_trend(df_htf, candle_time)
+
+    score_long_6 = int(df["score_long"].iloc[i])
+    score_short_6 = int(df["score_short"].iloc[i])
+    if htf_bullish is True:
+        score_long_6 += 1
+    if htf_bullish is False:
+        score_short_6 += 1
+
     ts_pkt = (candle_time + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
     all_sent_ok = True
 
     if df["confirm_long"].iloc[i]:
-        stars = int(df["stars_long"].iloc[i])
-        if stars >= cfg["min_stars_to_show"]:
+        if score_long_6 >= cfg["min_score_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "long")
             entry = df["close"].iloc[i]
-            star_str = "*" * stars + "-" * (3 - stars)
+            star_str = "*" * min(score_long_6 // 2, 3) + "-" * (3 - min(score_long_6 // 2, 3))
             body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
-                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df['score_long'].iloc[i])}/5)")
-            ok = send_email(f"LONG {symbol} ({timeframe}) {star_str}", body)
+                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {score_long_6}/6")
+            ok = send_email(f"LONG {symbol} ({timeframe}) {score_long_6}/6", body)
             all_sent_ok = all_sent_ok and ok
 
     if df["confirm_short"].iloc[i]:
-        stars = int(df["stars_short"].iloc[i])
-        if stars >= cfg["min_stars_to_show"]:
+        if score_short_6 >= cfg["min_score_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "short")
             entry = df["close"].iloc[i]
-            star_str = "*" * stars + "-" * (3 - stars)
             body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
-                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {star_str} ({int(df['score_short'].iloc[i])}/5)")
-            ok = send_email(f"SHORT {symbol} ({timeframe}) {star_str}", body)
+                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {score_short_6}/6")
+            ok = send_email(f"SHORT {symbol} ({timeframe}) {score_short_6}/6", body)
             all_sent_ok = all_sent_ok and ok
 
     if all_sent_ok:
@@ -400,7 +432,7 @@ def run_live(cfg):
         for tf in cfg["timeframes"]:
             minutes = TF_MINUTES[tf]
             df_tf = resample_df(df15, minutes)
-            check_one(df_tf, symbol, tf, cfg, state, f"{symbol}_{tf}", now_utc)
+            check_one(df_tf, symbol, tf, cfg, state, f"{symbol}_{tf}", now_utc, df15=df15, base_minutes=minutes)
 
         if (idx + 1) % 20 == 0:
             print(f"  ...{idx + 1}/{len(symbols)} coins check ho chuke")
