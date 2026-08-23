@@ -1,4 +1,4 @@
-"""
+ """
 CoinGlass Master Model v5 - FAST Version (100 coins, single-fetch per coin)
 ===============================================================================
 Speed fix: har coin ke liye sirf EK baar 15m data mangwaya jata hai,
@@ -24,6 +24,7 @@ import sys
 import json
 import os
 import smtplib
+import concurrent.futures
 from email.mime.text import MIMEText
 from datetime import datetime, timezone
 import pandas as pd
@@ -69,7 +70,7 @@ CONFIG = {
 }
 
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
-GMAIL_APP_PASSWORD = "pgmq hgoz kkwc dcwg"
+GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
 
 STATE_FILE = "alert_state_v5.json"
@@ -424,21 +425,36 @@ def run_live(cfg):
 
     state = load_state()
 
-    for idx, symbol in enumerate(symbols):
+    # Har coin ke liye alag exchange instance (thread-safe rehne ke liye,
+    # ek hi shared instance threads mein use karna safe nahi hota)
+    def fetch_one(symbol):
         try:
-            df15 = fetch_15m_df(ex, symbol, cfg["candles_to_fetch_15m"])
+            local_ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
+            df15 = fetch_15m_df(local_ex, symbol, cfg["candles_to_fetch_15m"])
+            return symbol, df15, None
         except Exception as e:
-            print(f"{symbol}: fetch fail -> {e}")
-            continue
+            return symbol, None, e
 
-        for tf in cfg["timeframes"]:
-            minutes = TF_MINUTES[tf]
-            df_tf = resample_df(df15, minutes)
-            check_one(df_tf, symbol, tf, cfg, state, f"{symbol}_{tf}", now_utc, df15=df15, base_minutes=minutes)
+    PARALLEL_WORKERS = 10   # ek sath 10 coins fetch honge, isse pura scan bohot tez hoga
 
-        if (idx + 1) % 20 == 0:
-            print(f"  ...{idx + 1}/{len(symbols)} coins check ho chuke")
-            save_state(state)
+    checked = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
+        futures = [pool.submit(fetch_one, sym) for sym in symbols]
+        for future in concurrent.futures.as_completed(futures):
+            symbol, df15, err = future.result()
+            if err is not None:
+                print(f"{symbol}: fetch fail -> {err}")
+                continue
+
+            for tf in cfg["timeframes"]:
+                minutes = TF_MINUTES[tf]
+                df_tf = resample_df(df15, minutes)
+                check_one(df_tf, symbol, tf, cfg, state, f"{symbol}_{tf}", now_utc, df15=df15, base_minutes=minutes)
+
+            checked += 1
+            if checked % 20 == 0:
+                print(f"  ...{checked}/{len(symbols)} coins check ho chuke")
+                save_state(state)
 
     save_state(state)
     print("Sab coins check ho gaye.")
