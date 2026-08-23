@@ -17,7 +17,7 @@ Setup:
   pip install ccxt pandas numpy --break-system-packages
   GMAIL_ADDRESS / GMAIL_APP_PASSWORD / TO_EMAIL neeche fill karo.
 
-Command: python3 coinglass_v5.py live
+Command: python3 coinglass_multi.py live
 """
 
 import sys
@@ -31,19 +31,16 @@ import pandas as pd
 import numpy as np
 import ccxt
 
-# ==========================================
-# 1. CONFIG
-# ==========================================
 CONFIG = {
     "exchange": "mexc",
     "market_type": "swap",
-    "max_coins": 100,                 # high-volume/liquid coins hi lega
-    "timeframes": ["15m", "30m", "45m", "60m", "120m"],   # 120m = 2 hour
-    "candles_to_fetch_15m": 500,      # 120m resample ke liye kaafi 15m bars chahiye
+    "max_coins": 100,
+    "timeframes": ["15m", "30m", "45m", "60m", "120m"],
+    "candles_to_fetch_15m": 500,
 
-    "signal_mode": "Balanced",        # "Conservative" / "Balanced" / "More Signals"
-    "min_score_to_show": 4,           # score /6 - sirf 4,5,6 wale pe alert (3 ya kam ignore)
-    "htf_multiplier": 4,              # HTF = current resample x 4 (extra API call nahi lagta)
+    "signal_mode": "Balanced",
+    "min_score_to_show": 4,
+    "htf_multiplier": 4,
 
     "use_cmf_filter": True,
     "use_div_filter": True,
@@ -75,9 +72,7 @@ TO_EMAIL = "arshadebad5@gmail.com"
 
 STATE_FILE = "alert_state_v5.json"
 
-# ==========================================
-# 2. TOP 100 COINS (high volume = high liquidity/clarity)
-# ==========================================
+
 def get_top_coins(ex, cfg):
     markets = ex.load_markets()
     candidates = []
@@ -104,14 +99,13 @@ def get_top_coins(ex, cfg):
     top = [sym for sym, _ in ranked[: cfg["max_coins"]]]
     return top
 
-# ==========================================
-# 3. DATA FETCH (sirf 15m, baaki sab resample se)
-# ==========================================
+
 def fetch_15m_df(ex, symbol, limit):
     raw = ex.fetch_ohlcv(symbol, timeframe="15m", limit=limit)
     df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
     return df
+
 
 def resample_df(df15, target_minutes):
     if target_minutes == 15:
@@ -122,11 +116,11 @@ def resample_df(df15, target_minutes):
     }).dropna().reset_index()
     return out
 
+
 TF_MINUTES = {"15m": 15, "30m": 30, "45m": 45, "60m": 60, "120m": 120}
 
+
 def compute_htf_trend(df15, base_minutes, multiplier, ema_slow_len):
-    """HTF trend nikalta hai bina koi extra API call kiye - already fetched
-    15m data se hi ek bada timeframe resample kar leta hai."""
     htf_minutes = base_minutes * multiplier
     df_htf = resample_df(df15, htf_minutes)
     if len(df_htf) < ema_slow_len + 2:
@@ -136,9 +130,8 @@ def compute_htf_trend(df15, base_minutes, multiplier, ema_slow_len):
     df_htf["is_htf_bullish"] = df_htf["close"] >= df_htf["htf_ema"]
     return df_htf, htf_minutes
 
+
 def lookup_htf_trend(df_htf, candle_time):
-    """Signal candle ke waqt jo bhi HTF bar us se pehle/us waqt close hui thi,
-    uska trend dhoondta hai."""
     if df_htf is None or len(df_htf) == 0:
         return None
     if "is_htf_bullish" not in df_htf.columns:
@@ -148,14 +141,14 @@ def lookup_htf_trend(df_htf, candle_time):
         return None
     return bool(matching["is_htf_bullish"].iloc[-1])
 
-# ==========================================
-# 4. INDICATORS (Pine v5 mode logic)
-# ==========================================
+
 def ema(series, length):
     return series.ewm(span=length, adjust=False).mean()
 
+
 def sma(series, length):
     return series.rolling(length).mean()
+
 
 def wilder_atr(df, length):
     hl = df["high"] - df["low"]
@@ -163,6 +156,7 @@ def wilder_atr(df, length):
     lc = (df["low"] - df["close"].shift()).abs()
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     return tr.ewm(alpha=1 / length, adjust=False).mean()
+
 
 def build_indicators(df, cfg):
     df = df.copy()
@@ -284,18 +278,8 @@ def build_indicators(df, cfg):
     df["score_long"] = score_long
     df["score_short"] = score_short
 
-    def star_rating(score):
-        if score >= 5:
-            return 3
-        elif score >= 3:
-            return 2
-        else:
-            return 1
-
-    df["stars_long"] = df["score_long"].apply(star_rating)
-    df["stars_short"] = df["score_short"].apply(star_rating)
-
     return df
+
 
 def compute_levels(df, i, cfg, side):
     use_conf = cfg["use_confirmation"]
@@ -316,9 +300,7 @@ def compute_levels(df, i, cfg, side):
         tp = close - (4 * step)
     return sl, tp
 
-# ==========================================
-# 5. EMAIL
-# ==========================================
+
 def send_email(subject, body):
     msg = MIMEText(body)
     msg["Subject"] = subject
@@ -334,9 +316,7 @@ def send_email(subject, body):
         print("  -> Email FAIL:", e)
         return False
 
-# ==========================================
-# 6. STATE
-# ==========================================
+
 def load_state():
     if os.path.exists(STATE_FILE):
         try:
@@ -346,23 +326,21 @@ def load_state():
             return {}
     return {}
 
+
 def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f)
 
-# ==========================================
-# 7. CHECK ONE SYMBOL+TIMEFRAME
-# ==========================================
+
 def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, base_minutes=None):
     df = build_indicators(df, cfg)
-    i = len(df) - 2   # last CLOSED candle
+    i = len(df) - 2
     if i < cfg["div_lookback"] + 5:
         return
 
     candle_time = df["timestamp"].iloc[i]
     ts = str(candle_time)
 
-    # Purani candle ho to skip (retroactive alert kabhi nahi)
     age_minutes = (now_utc - candle_time).total_seconds() / 60
     tf_minutes = TF_MINUTES.get(timeframe, 60)
     if age_minutes > tf_minutes * 2.5:
@@ -372,7 +350,6 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
     if state.get(state_key) == ts:
         return
 
-    # HTF trend nikalo (extra API call nahi, already fetched data se)
     htf_bullish = None
     if df15 is not None and base_minutes is not None:
         df_htf, _ = compute_htf_trend(df15, base_minutes, cfg["htf_multiplier"], cfg["ema_slow_len"])
@@ -392,7 +369,6 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
         if score_long_6 >= cfg["min_score_to_show"]:
             sl, tp = compute_levels(df, i, cfg, "long")
             entry = df["close"].iloc[i]
-            star_str = "*" * min(score_long_6 // 2, 3) + "-" * (3 - min(score_long_6 // 2, 3))
             body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
                     f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {score_long_6}/6")
             ok = send_email(f"LONG {symbol} ({timeframe}) {score_long_6}/6", body)
@@ -410,9 +386,7 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
     if all_sent_ok:
         state[state_key] = ts
 
-# ==========================================
-# 8. LIVE MODE (FAST - ek hi fetch per coin)
-# ==========================================
+
 def run_live(cfg):
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -425,8 +399,6 @@ def run_live(cfg):
 
     state = load_state()
 
-    # Har coin ke liye alag exchange instance (thread-safe rehne ke liye,
-    # ek hi shared instance threads mein use karna safe nahi hota)
     def fetch_one(symbol):
         try:
             local_ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
@@ -435,7 +407,7 @@ def run_live(cfg):
         except Exception as e:
             return symbol, None, e
 
-    PARALLEL_WORKERS = 10   # ek sath 10 coins fetch honge, isse pura scan bohot tez hoga
+    PARALLEL_WORKERS = 10
 
     checked = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
@@ -459,9 +431,10 @@ def run_live(cfg):
     save_state(state)
     print("Sab coins check ho gaye.")
 
+
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "live"
     if mode == "live":
         run_live(CONFIG)
     else:
-        print("Usage: python3 coinglass_v5.py live")
+        print("Usage: python3 coinglass_multi.py live")
