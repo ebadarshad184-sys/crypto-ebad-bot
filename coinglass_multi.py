@@ -14,10 +14,10 @@ CONFIG = {
     "market_type": "swap",
     "max_coins": 100,
     "timeframes": ["15m", "30m", "45m", "60m", "120m"],
-    "candles_to_fetch_15m": 200,  # Speed optimize: Fast data fetch
+    "candles_to_fetch_15m": 200,
 
     "signal_mode": "Balanced",
-    "min_score_to_show": 4,  # Strictly filter out 1/6, 2/6, 3/6
+    "min_score_to_show": 4,
     "htf_multiplier": 4,
 
     "use_cmf_filter": True,
@@ -44,6 +44,7 @@ CONFIG = {
     "exclude_bases": ["USDC", "DAI", "TUSD", "BUSD", "FDUSD", "USDT"],
 }
 
+# Configured Credentials
 GMAIL_ADDRESS = "arshadebad5@gmail.com"
 GMAIL_APP_PASSWORD = "ondd zmuv exqj csrh"
 TO_EMAIL = "arshadebad5@gmail.com"
@@ -237,10 +238,11 @@ def send_email(subject, body):
     msg["From"] = GMAIL_ADDRESS
     msg["To"] = TO_EMAIL
     try:
+        clean_password = GMAIL_APP_PASSWORD.replace(" ", "")
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
-            server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD.replace(" ", ""))
+            server.login(GMAIL_ADDRESS, clean_password)
             server.sendmail(GMAIL_ADDRESS, TO_EMAIL, msg.as_string())
-        print("  -> Email sent:", subject)
+        print("  -> Email sent successfully:", subject)
         return True
     except Exception as e:
         print("  -> Email FAIL:", e)
@@ -271,9 +273,9 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
     candle_time = df["timestamp"].iloc[i]
     ts = str(candle_time)
 
+    # Strictly reject signals older than 20 minutes from candle close
     age_minutes = (now_utc - candle_time).total_seconds() / 60
-    tf_minutes = TF_MINUTES.get(timeframe, 60)
-    if age_minutes > tf_minutes * 2.5:
+    if age_minutes > 20:
         return state_key, ts
 
     if state.get(state_key) == ts:
@@ -294,7 +296,6 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
     ts_pkt = (candle_time + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
     all_sent_ok = True
 
-    # Filter strictly for score >= 4 (Only 4/6, 5/6, 6/6)
     if df["confirm_long"].iloc[i] and score_long_6 >= 4:
         sl, tp = compute_levels(df, i, cfg, "long")
         entry = df["close"].iloc[i]
@@ -333,7 +334,7 @@ def run_live(cfg):
         except Exception as e:
             return symbol, None, e
 
-    PARALLEL_WORKERS = 25  # Increased concurrency for instant execution
+    PARALLEL_WORKERS = 25
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
         futures = [pool.submit(fetch_one, sym) for sym in symbols]
