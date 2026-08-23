@@ -1,8 +1,3 @@
- """
-CoinGlass Master Model v5 - Fixed Version
-===============================================================================
-"""
-
 import sys
 import json
 import os
@@ -18,6 +13,8 @@ CONFIG = {
     "exchange": "mexc",
     "market_type": "swap",
     "max_coins": 100,
+...
+
     "timeframes": ["15m", "30m", "45m", "60m", "120m"],
     "candles_to_fetch_15m": 500,
 
