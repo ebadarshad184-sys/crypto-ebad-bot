@@ -1,23 +1,6 @@
  """
-CoinGlass Master Model v5 - FAST Version (100 coins, single-fetch per coin)
+CoinGlass Master Model v5 - Fixed Version
 ===============================================================================
-Speed fix: har coin ke liye sirf EK baar 15m data mangwaya jata hai,
-baaki saare timeframes (30m/45m/60m/2h) usi se resample karke banaye
-jate hain. Isse API calls ~100 tak rehti hain (pehle ~400-1200 thi),
-matlab email bohot jaldi aati hai.
-
-Coins: top 100 by volume (high liquidity = zyada clear/reliable trend,
-kam noise) - MEXC USDT perpetual swap, no stablecoins/leveraged tokens.
-
-Timeframes: 15m, 30m, 45m, 60m, 2h
-Time: Pakistan time (PKT) mein hi likha aata hai, candle ka EXACT close
-time hota hai (koi estimate nahi).
-
-Setup:
-  pip install ccxt pandas numpy --break-system-packages
-  GMAIL_ADDRESS / GMAIL_APP_PASSWORD / TO_EMAIL neeche fill karo.
-
-Command: python3 coinglass_multi.py live
 """
 
 import sys
@@ -109,7 +92,7 @@ def fetch_15m_df(ex, symbol, limit):
 
 def resample_df(df15, target_minutes):
     if target_minutes == 15:
-        return df15
+        return df15.copy()
     df = df15.set_index("timestamp")
     out = df.resample(f"{target_minutes}min").agg({
         "open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"
@@ -118,6 +101,22 @@ def resample_df(df15, target_minutes):
 
 
 TF_MINUTES = {"15m": 15, "30m": 30, "45m": 45, "60m": 60, "120m": 120}
+
+
+def ema(series, length):
+    return series.ewm(span=length, adjust=False).mean()
+
+
+def sma(series, length):
+    return series.rolling(length).mean()
+
+
+def wilder_atr(df, length):
+    hl = df["high"] - df["low"]
+    hc = (df["high"] - df["close"].shift()).abs()
+    lc = (df["low"] - df["close"].shift()).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    return tr.ewm(alpha=1 / length, adjust=False).mean()
 
 
 def compute_htf_trend(df15, base_minutes, multiplier, ema_slow_len):
@@ -140,22 +139,6 @@ def lookup_htf_trend(df_htf, candle_time):
     if len(matching) == 0:
         return None
     return bool(matching["is_htf_bullish"].iloc[-1])
-
-
-def ema(series, length):
-    return series.ewm(span=length, adjust=False).mean()
-
-
-def sma(series, length):
-    return series.rolling(length).mean()
-
-
-def wilder_atr(df, length):
-    hl = df["high"] - df["low"]
-    hc = (df["high"] - df["close"].shift()).abs()
-    lc = (df["low"] - df["close"].shift()).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    return tr.ewm(alpha=1 / length, adjust=False).mean()
 
 
 def build_indicators(df, cfg):
@@ -336,7 +319,7 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
     df = build_indicators(df, cfg)
     i = len(df) - 2
     if i < cfg["div_lookback"] + 5:
-        return
+        return state_key, None
 
     candle_time = df["timestamp"].iloc[i]
     ts = str(candle_time)
@@ -344,11 +327,10 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
     age_minutes = (now_utc - candle_time).total_seconds() / 60
     tf_minutes = TF_MINUTES.get(timeframe, 60)
     if age_minutes > tf_minutes * 2.5:
-        state[state_key] = ts
-        return
+        return state_key, ts
 
     if state.get(state_key) == ts:
-        return
+        return state_key, None
 
     htf_bullish = None
     if df15 is not None and base_minutes is not None:
@@ -384,7 +366,8 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
             all_sent_ok = all_sent_ok and ok
 
     if all_sent_ok:
-        state[state_key] = ts
+        return state_key, ts
+    return state_key, None
 
 
 def run_live(cfg):
@@ -421,7 +404,9 @@ def run_live(cfg):
             for tf in cfg["timeframes"]:
                 minutes = TF_MINUTES[tf]
                 df_tf = resample_df(df15, minutes)
-                check_one(df_tf, symbol, tf, cfg, state, f"{symbol}_{tf}", now_utc, df15=df15, base_minutes=minutes)
+                s_key, s_ts = check_one(df_tf, symbol, tf, cfg, state, f"{symbol}_{tf}", now_utc, df15=df15, base_minutes=minutes)
+                if s_ts:
+                    state[s_key] = s_ts
 
             checked += 1
             if checked % 20 == 0:
