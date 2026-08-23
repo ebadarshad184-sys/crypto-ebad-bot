@@ -14,10 +14,10 @@ CONFIG = {
     "market_type": "swap",
     "max_coins": 100,
     "timeframes": ["15m", "30m", "45m", "60m", "120m"],
-    "candles_to_fetch_15m": 500,
+    "candles_to_fetch_15m": 200,  # Speed optimize: Fast data fetch
 
     "signal_mode": "Balanced",
-    "min_score_to_show": 4,
+    "min_score_to_show": 4,  # Strictly filter out 1/6, 2/6, 3/6
     "htf_multiplier": 4,
 
     "use_cmf_filter": True,
@@ -55,16 +55,10 @@ def get_top_coins(ex, cfg):
     markets = ex.load_markets()
     candidates = []
     for sym, m in markets.items():
-        if not m.get("swap"):
-            continue
-        if m.get("quote") != "USDT":
-            continue
-        if not m.get("active", True):
+        if not m.get("swap") or m.get("quote") != "USDT" or not m.get("active", True):
             continue
         base = m.get("base", "")
-        if base in cfg["exclude_bases"]:
-            continue
-        if any(pat in sym for pat in cfg["exclude_patterns"]):
+        if base in cfg["exclude_bases"] or any(pat in sym for pat in cfg["exclude_patterns"]):
             continue
         candidates.append(sym)
 
@@ -74,8 +68,7 @@ def get_top_coins(ex, cfg):
         key=lambda kv: (kv[1].get("quoteVolume") or 0),
         reverse=True,
     )
-    top = [sym for sym, _ in ranked[: cfg["max_coins"]]]
-    return top
+    return [sym for sym, _ in ranked[: cfg["max_coins"]]]
 
 
 def fetch_15m_df(ex, symbol, limit):
@@ -126,9 +119,7 @@ def compute_htf_trend(df15, base_minutes, multiplier, ema_slow_len):
 
 
 def lookup_htf_trend(df_htf, candle_time):
-    if df_htf is None or len(df_htf) == 0:
-        return None
-    if "is_htf_bullish" not in df_htf.columns:
+    if df_htf is None or len(df_htf) == 0 or "is_htf_bullish" not in df_htf.columns:
         return None
     matching = df_htf[df_htf["timestamp"] <= candle_time]
     if len(matching) == 0:
@@ -138,19 +129,8 @@ def lookup_htf_trend(df_htf, candle_time):
 
 def build_indicators(df, cfg):
     df = df.copy()
-
     mode = cfg["signal_mode"]
     mode_min_rel_vol = cfg["min_rel_vol_input"]
-    if mode == "Conservative":
-        mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.30)
-    elif mode == "Balanced":
-        mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.10)
-    elif mode == "More Signals":
-        mode_min_rel_vol = max(cfg["min_rel_vol_input"], 1.00)
-
-    strict_breakout = (mode == "Conservative")
-    strict_confirmation = (mode == "Conservative")
-    flexible_flow = (mode != "Conservative")
 
     df["ema_fast"] = ema(df["close"], cfg["ema_fast_len"])
     df["ema_slow"] = ema(df["close"], cfg["ema_slow_len"])
@@ -172,26 +152,15 @@ def build_indicators(df, cfg):
     df["is_accum"] = df["cmf"] > 0
     df["is_distrib"] = df["cmf"] < 0
 
-    if cfg["use_cmf_filter"]:
-        if flexible_flow:
-            df["pass_cmf_long"] = df["is_accum"] | df["is_high_vol"]
-            df["pass_cmf_short"] = df["is_distrib"] | df["is_high_vol"]
-        else:
-            df["pass_cmf_long"] = df["is_accum"]
-            df["pass_cmf_short"] = df["is_distrib"]
-    else:
-        df["pass_cmf_long"] = True
-        df["pass_cmf_short"] = True
+    df["pass_cmf_long"] = df["is_accum"] | df["is_high_vol"]
+    df["pass_cmf_short"] = df["is_distrib"] | df["is_high_vol"]
 
     lb = cfg["div_lookback"]
     df["bearish_div"] = (df["close"] > df["close"].shift(lb)) & (df["cmf"] < df["cmf"].shift(lb)) & (df["cmf"] < df["cmf"].shift(1))
     df["bullish_div"] = (df["close"] < df["close"].shift(lb)) & (df["cmf"] > df["cmf"].shift(lb)) & (df["cmf"] > df["cmf"].shift(1))
-    if cfg["use_div_filter"]:
-        df["pass_div_long"] = ~df["bearish_div"]
-        df["pass_div_short"] = ~df["bullish_div"]
-    else:
-        df["pass_div_long"] = True
-        df["pass_div_short"] = True
+
+    df["pass_div_long"] = ~df["bearish_div"]
+    df["pass_div_short"] = ~df["bullish_div"]
 
     candle_range = df["high"] - df["low"]
     body = (df["close"] - df["open"]).abs()
@@ -203,24 +172,15 @@ def build_indicators(df, cfg):
     df["ema_align_long"] = df["ema_fast"] > df["ema_slow"]
     df["ema_align_short"] = df["ema_fast"] < df["ema_slow"]
 
-    prev_high = df["high"].shift(1)
-    prev_low = df["low"].shift(1)
     prev_close = df["close"].shift(1)
-
-    if strict_breakout:
-        break_long_cond = df["close"] > prev_high
-        break_short_cond = df["close"] < prev_low
-    else:
-        break_long_cond = df["close"] > prev_close
-        break_short_cond = df["close"] < prev_close
 
     df["break_both_ema_long"] = (
         df["is_bull"] & (df["open"] < df["ema_slow"]) & (df["close"] > df["ema_fast"])
-        & (df["close"] > df["ema_slow"]) & break_long_cond
+        & (df["close"] > df["ema_slow"]) & (df["close"] > prev_close)
     )
     df["break_both_ema_short"] = (
         df["is_bear"] & (df["open"] > df["ema_slow"]) & (df["close"] < df["ema_fast"])
-        & (df["close"] < df["ema_slow"]) & break_short_cond
+        & (df["close"] < df["ema_slow"]) & (df["close"] < prev_close)
     )
 
     df["setup_long"] = (
@@ -232,18 +192,10 @@ def build_indicators(df, cfg):
         & df["is_solid_body"] & df["pass_cmf_short"] & df["pass_div_short"]
     )
 
-    if cfg["use_confirmation"]:
-        prev_setup_long = df["setup_long"].shift(1).fillna(False)
-        prev_setup_short = df["setup_short"].shift(1).fillna(False)
-        if strict_confirmation:
-            df["confirm_long"] = prev_setup_long & (df["close"] > prev_high) & df["is_bull"]
-            df["confirm_short"] = prev_setup_short & (df["close"] < prev_low) & df["is_bear"]
-        else:
-            df["confirm_long"] = prev_setup_long & (df["close"] > prev_close) & df["is_bull"]
-            df["confirm_short"] = prev_setup_short & (df["close"] < prev_close) & df["is_bear"]
-    else:
-        df["confirm_long"] = df["setup_long"]
-        df["confirm_short"] = df["setup_short"]
+    prev_setup_long = df["setup_long"].shift(1).fillna(False)
+    prev_setup_short = df["setup_short"].shift(1).fillna(False)
+    df["confirm_long"] = prev_setup_long & (df["close"] > prev_close) & df["is_bull"]
+    df["confirm_short"] = prev_setup_short & (df["close"] < prev_close) & df["is_bear"]
 
     score_long = (
         df["is_accum"].astype(int) + df["is_high_vol"].astype(int) + df["is_whale_vol"].astype(int)
@@ -285,10 +237,10 @@ def send_email(subject, body):
     msg["From"] = GMAIL_ADDRESS
     msg["To"] = TO_EMAIL
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
             server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD.replace(" ", ""))
             server.sendmail(GMAIL_ADDRESS, TO_EMAIL, msg.as_string())
-        print("  -> Email bhej diya:", subject)
+        print("  -> Email sent:", subject)
         return True
     except Exception as e:
         print("  -> Email FAIL:", e)
@@ -342,23 +294,22 @@ def check_one(df, symbol, timeframe, cfg, state, state_key, now_utc, df15=None, 
     ts_pkt = (candle_time + pd.Timedelta(hours=5)).strftime("%Y-%m-%d %I:%M %p") + " (Pakistan time)"
     all_sent_ok = True
 
-    if df["confirm_long"].iloc[i]:
-        if score_long_6 >= cfg["min_score_to_show"]:
-            sl, tp = compute_levels(df, i, cfg, "long")
-            entry = df["close"].iloc[i]
-            body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
-                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {score_long_6}/6")
-            ok = send_email(f"LONG {symbol} ({timeframe}) {score_long_6}/6", body)
-            all_sent_ok = all_sent_ok and ok
+    # Filter strictly for score >= 4 (Only 4/6, 5/6, 6/6)
+    if df["confirm_long"].iloc[i] and score_long_6 >= 4:
+        sl, tp = compute_levels(df, i, cfg, "long")
+        entry = df["close"].iloc[i]
+        body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {score_long_6}/6")
+        ok = send_email(f"LONG {symbol} ({timeframe}) {score_long_6}/6", body)
+        all_sent_ok = all_sent_ok and ok
 
-    if df["confirm_short"].iloc[i]:
-        if score_short_6 >= cfg["min_score_to_show"]:
-            sl, tp = compute_levels(df, i, cfg, "short")
-            entry = df["close"].iloc[i]
-            body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
-                    f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {score_short_6}/6")
-            ok = send_email(f"SHORT {symbol} ({timeframe}) {score_short_6}/6", body)
-            all_sent_ok = all_sent_ok and ok
+    if df["confirm_short"].iloc[i] and score_short_6 >= 4:
+        sl, tp = compute_levels(df, i, cfg, "short")
+        entry = df["close"].iloc[i]
+        body = (f"Coin: {symbol}\nTimeframe: {timeframe}\nMode: {cfg['signal_mode']}\nTime: {ts_pkt}\n"
+                f"Entry~: {entry:.5f}\nSL: {sl:.5f}\nTP: {tp:.5f}\nInst Score: {score_short_6}/6")
+        ok = send_email(f"SHORT {symbol} ({timeframe}) {score_short_6}/6", body)
+        all_sent_ok = all_sent_ok and ok
 
     if all_sent_ok:
         return state_key, ts
@@ -371,10 +322,7 @@ def run_live(cfg):
     ex_class = getattr(ccxt, cfg["exchange"])
     ex = ex_class({"enableRateLimit": True, "options": {"defaultType": cfg["market_type"]}})
 
-    print("Top 100 high-liquidity coins fetch kar raha hoon...")
     symbols = get_top_coins(ex, cfg)
-    print(f"{len(symbols)} coins mile. Timeframes: {cfg['timeframes']}. Mode: {cfg['signal_mode']}")
-
     state = load_state()
 
     def fetch_one(symbol):
@@ -385,15 +333,13 @@ def run_live(cfg):
         except Exception as e:
             return symbol, None, e
 
-    PARALLEL_WORKERS = 10
+    PARALLEL_WORKERS = 25  # Increased concurrency for instant execution
 
-    checked = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as pool:
         futures = [pool.submit(fetch_one, sym) for sym in symbols]
         for future in concurrent.futures.as_completed(futures):
             symbol, df15, err = future.result()
             if err is not None:
-                print(f"{symbol}: fetch fail -> {err}")
                 continue
 
             for tf in cfg["timeframes"]:
@@ -403,13 +349,8 @@ def run_live(cfg):
                 if s_ts:
                     state[s_key] = s_ts
 
-            checked += 1
-            if checked % 20 == 0:
-                print(f"  ...{checked}/{len(symbols)} coins check ho chuke")
-                save_state(state)
-
     save_state(state)
-    print("Sab coins check ho gaye.")
+    print("Done scanning.")
 
 
 if __name__ == "__main__":
