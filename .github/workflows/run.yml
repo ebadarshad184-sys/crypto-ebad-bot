@@ -2,15 +2,8 @@ name: Trading Signal Check
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
-
-concurrency:
-  group: trading-signals
-  cancel-in-progress: true
-
-permissions:
-  contents: write
 
 jobs:
   check-signal:
@@ -24,23 +17,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache Python dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Libraries install karo
         run: pip install ccxt pandas requests numpy
 
       - name: Strategy check chalao
-        run: python coinglass_multi.py live
-
-      - name: State save karo
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add alert_state_v5.json || true
-          git diff --cached --quiet || (git commit -m "Update alert state [skip ci]" && git push)
+        run: python coinglass_strategy.py live
